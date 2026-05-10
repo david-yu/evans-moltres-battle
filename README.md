@@ -21,3 +21,6 @@ npm run dev
 - `F` or click: swing the diamond sword
 - `E`: capture Mount Gosha in the circle, or eat a chicken on the new planet
 - `R` or the Restart button: restart the game
+
+On the green planet, board the rocket near a chicken to bring it back to the
+original desert planet.

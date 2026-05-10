@@ -161,6 +161,18 @@ try {
     await page.keyboard.press("KeyE");
     await page.waitForTimeout(260);
     const afterChickenState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+    const beforeReturnLaunchState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerAtPlanetRocket();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.keyboard.press("Space");
+    await page.waitForTimeout(3100);
+    const afterReturnLaunchState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+    await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placeRocketNearHome();
+    });
+    await page.waitForTimeout(1100);
+    const afterHomeLandingState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
     await page.close();
 
     if (!result.ok) {
@@ -274,6 +286,10 @@ try {
       throw new Error(`${viewport.name}: destination planet has no lava rivers or volcanoes`);
     }
 
+    if (afterLandingState.lavaFlowBands <= 0 || afterLandingState.lavaSpewCount <= 0) {
+      throw new Error(`${viewport.name}: lava rivers are not flowing or volcanoes are not spewing lava`);
+    }
+
     if (afterHazardState.health >= beforeHazardState.health || afterHazardState.damageNumbers <= beforeHazardState.damageNumbers) {
       throw new Error(`${viewport.name}: lava hazard did not damage Growlithe`);
     }
@@ -289,6 +305,23 @@ try {
       throw new Error(`${viewport.name}: Growlithe did not eat the nearby chicken`);
     }
 
+    if (
+      beforeReturnLaunchState.phase !== "planet" ||
+      afterReturnLaunchState.phase !== "space" ||
+      afterReturnLaunchState.flightTarget !== "desert" ||
+      !afterReturnLaunchState.chickenPassenger
+    ) {
+      throw new Error(`${viewport.name}: rocket did not launch home with a chicken passenger`);
+    }
+
+    if (
+      afterHomeLandingState.phase !== "desert" ||
+      !afterHomeLandingState.returnedChicken ||
+      !afterHomeLandingState.desertChickenVisible
+    ) {
+      throw new Error(`${viewport.name}: rocket did not bring a chicken back to the original planet`);
+    }
+
     if (mountDelta < 0.02) {
       throw new Error(`${viewport.name}: animated mount did not move`);
     }
@@ -298,7 +331,7 @@ try {
         3,
       )}, colored=${result.coloredRatio.toFixed(3)}, playerDelta=${playerDelta.toFixed(
         2,
-      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, blockEffect=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, rocketSmoke=yes, lavaHazards=yes, chickens=yes, mountDelta=${mountDelta.toFixed(
+      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, blockEffect=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, rocketReturn=yes, rocketSmoke=yes, lavaHazards=yes, lavaFlow=yes, chickens=yes, mountDelta=${mountDelta.toFixed(
         2,
       )}, shoulderShield=yes, screenshot=${screenshotPath}`,
     );

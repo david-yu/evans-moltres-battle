@@ -11,6 +11,7 @@ const shipVelocity = new THREE.Vector3();
 const yAxis = new THREE.Vector3(0, 1, 0);
 const rocketHome = new THREE.Vector3(-24, 0, -9);
 const destinationPlanetPosition = new THREE.Vector3(0, 62, -250);
+const originalPlanetPosition = new THREE.Vector3(0, 54, 230);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050813);
@@ -75,6 +76,11 @@ const game = {
   blockFlashTimer: 0,
   lastBlockTime: 0,
   hazardCooldown: 0,
+  flightTarget: "planet",
+  launchOrigin: "desert",
+  chickenPassenger: false,
+  returnedChicken: false,
+  lavaSpewCount: 0,
 };
 
 const materials = {
@@ -280,7 +286,10 @@ let captureParticles;
 let rocket;
 let rocketFlame;
 let destinationPlanet;
+let originalPlanet;
 let planetSurface;
+let desertChicken;
+let rocketChickenPassenger;
 const piglins = [];
 const chickens = [];
 const lavaRivers = [];
@@ -291,6 +300,7 @@ const planetObjects = [];
 const impactBursts = [];
 const smokePuffs = [];
 const damageNumbers = [];
+const lavaBombs = [];
 let playerVerticalVelocity = 0;
 
 setupLighting();
@@ -301,8 +311,14 @@ rocket = createRocket();
 scene.add(rocket);
 destinationPlanet = createDestinationPlanet();
 scene.add(destinationPlanet);
+originalPlanet = createOriginalPlanet();
+scene.add(originalPlanet);
 planetSurface = createPlanetSurface();
 scene.add(planetSurface);
+desertChicken = createChicken(101);
+desertChicken.name = "Returned Desert Chicken";
+desertChicken.visible = false;
+scene.add(desertChicken);
 player = createGrowlitheJockey();
 scene.add(player);
 mountGosha = createMountGosha();
@@ -338,6 +354,14 @@ window.__GOSHA_GAME_DEBUG__ = {
     rocketFlameVisible: Boolean(rocketFlame?.visible),
     rocketFlamePower: rocketFlame?.userData.power || 0,
     smokePuffs: smokePuffs.length,
+    lavaBombs: lavaBombs.length,
+    lavaSpewCount: game.lavaSpewCount,
+    lavaFlowBands: lavaRivers.reduce((sum, river) => sum + river.userData.flowBands.length, 0),
+    flightTarget: game.flightTarget,
+    launchOrigin: game.launchOrigin,
+    chickenPassenger: game.chickenPassenger,
+    returnedChicken: game.returnedChicken,
+    desertChickenVisible: Boolean(desertChicken?.visible),
     blockFlashActive: game.blockFlashTimer > 0,
     lastBlockTime: game.lastBlockTime,
     damageNumbers: damageNumbers.length,
@@ -423,10 +447,21 @@ window.__GOSHA_GAME_DEBUG__ = {
   },
   placeRocketNearPlanet: () => {
     game.phase = "space";
+    game.flightTarget = "planet";
     player.visible = false;
     setWorldMode("space");
     rocket.position.copy(destinationPlanet.position).add(new THREE.Vector3(0, 0, 24));
     shipVelocity.set(0, 0, -18);
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
+  placeRocketNearHome: () => {
+    game.phase = "space";
+    game.flightTarget = "desert";
+    game.chickenPassenger = true;
+    player.visible = false;
+    setWorldMode("space");
+    rocket.position.copy(originalPlanet.position).add(new THREE.Vector3(0, 0, -24));
+    shipVelocity.set(0, 0, 18);
     return window.__GOSHA_GAME_DEBUG__.state();
   },
   placePlayerNearChicken: () => {
@@ -459,6 +494,21 @@ window.__GOSHA_GAME_DEBUG__ = {
     player.position.set(point.x, planetHeight(point.x, point.z), point.z);
     player.userData.grounded = true;
     game.hazardCooldown = 0;
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
+  placePlayerAtPlanetRocket: () => {
+    if (game.phase !== "planet") {
+      landOnNewPlanet();
+    }
+    const chicken = chickens.find((candidate) => !candidate.userData.eaten) || chickens[0];
+    chicken.visible = true;
+    chicken.userData.eaten = false;
+    chicken.position.set(rocket.position.x + 2.5, planetHeight(rocket.position.x + 2.5, rocket.position.z + 0.8), rocket.position.z + 0.8);
+    player.position.set(rocket.position.x + 1.8, getCurrentGroundY(rocket.position.x + 1.8, rocket.position.z), rocket.position.z);
+    player.rotation.y = yawForDirection(rocket.position.clone().sub(player.position));
+    game.targetYaw = player.rotation.y;
+    player.userData.grounded = true;
+    playerVerticalVelocity = 0;
     return window.__GOSHA_GAME_DEBUG__.state();
   },
 };
@@ -751,6 +801,14 @@ function createRocket() {
   rocketFlame.userData.power = 0;
   group.add(rocketFlame);
 
+  rocketChickenPassenger = createChicken(102);
+  rocketChickenPassenger.name = "Rocket Chicken Passenger";
+  rocketChickenPassenger.scale.setScalar(0.72);
+  rocketChickenPassenger.position.set(1.06, 2.1, 0.2);
+  rocketChickenPassenger.rotation.y = -0.6;
+  rocketChickenPassenger.visible = false;
+  group.add(rocketChickenPassenger);
+
   group.userData.home = rocketHome.clone();
   group.userData.boardRadius = 5.6;
   return group;
@@ -777,6 +835,37 @@ function createDestinationPlanet() {
   );
   ring.rotation.set(1.1, 0.2, 0.45);
   group.add(ring);
+
+  return group;
+}
+
+function createOriginalPlanet() {
+  const group = new THREE.Group();
+  group.name = "Original Desert Planet";
+  group.position.copy(originalPlanetPosition);
+  group.visible = false;
+
+  const planet = new THREE.Mesh(
+    new THREE.SphereGeometry(18, 48, 24),
+    new THREE.MeshStandardMaterial({
+      color: 0xc58a48,
+      emissive: 0x4a2715,
+      emissiveIntensity: 0.55,
+      roughness: 0.62,
+    }),
+  );
+  group.add(planet);
+
+  const band = new THREE.Mesh(
+    new THREE.TorusGeometry(18.8, 0.16, 8, 72),
+    new THREE.MeshBasicMaterial({
+      color: 0xf0c27b,
+      transparent: true,
+      opacity: 0.62,
+    }),
+  );
+  band.rotation.x = Math.PI / 2.4;
+  group.add(band);
 
   return group;
 }
@@ -879,11 +968,27 @@ function createLavaSegment(start, end, riverIndex) {
   core.rotation.y = river.rotation.y;
   group.add(core);
 
+  const flowBands = [];
+  for (let i = 0; i < 4; i += 1) {
+    const bandMaterial = materials.lavaCore.clone();
+    bandMaterial.opacity = 0.34;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(width * 0.24, 0.13, Math.max(1.4, length * 0.16)), bandMaterial);
+    band.rotation.y = river.rotation.y;
+    band.position.copy(start).lerp(end, (i + 0.5) / 4);
+    band.position.y += 0.09;
+    band.userData.offset = i / 4;
+    group.add(band);
+    flowBands.push(band);
+  }
+
   group.userData = {
     start,
     end,
     width,
+    length,
+    rotationY: river.rotation.y,
     pulse: THREE.MathUtils.randFloat(0, Math.PI * 2),
+    flowBands,
   };
   return group;
 }
@@ -915,6 +1020,7 @@ function createVolcano(index, x, z) {
   group.userData = {
     hazardRadius: 6.5,
     pulse: THREE.MathUtils.randFloat(0, Math.PI * 2),
+    spewTimer: THREE.MathUtils.randFloat(0.12, 0.55),
     crater,
     glow,
   };
@@ -1767,7 +1873,12 @@ function requestJumpOrBoard() {
   if (game.lost || game.phase === "launching" || game.phase === "space") return;
 
   if (game.phase === "desert" && player.position.distanceTo(rocket.position) < rocket.userData.boardRadius) {
-    beginRocketBoarding();
+    beginRocketBoarding("desert");
+    return;
+  }
+
+  if (game.phase === "planet" && player.position.distanceTo(rocket.position) < rocket.userData.boardRadius) {
+    beginRocketBoarding("planet");
     return;
   }
 
@@ -1956,12 +2067,25 @@ function updatePlanetHazards(delta) {
     const pulse = 0.55 + Math.sin(clock.elapsedTime * 3.4 + river.userData.pulse) * 0.18;
     river.children[1].material.opacity = pulse;
     river.children[0].material.emissiveIntensity = 1.2 + pulse * 0.55;
+    river.userData.flowBands.forEach((band) => {
+      const t = (clock.elapsedTime * 0.24 + band.userData.offset) % 1;
+      band.position.copy(river.userData.start).lerp(river.userData.end, t);
+      band.position.y = planetHeight(band.position.x, band.position.z) + 0.16;
+      band.rotation.y = river.userData.rotationY + Math.sin(clock.elapsedTime * 5 + band.userData.offset * 9) * 0.04;
+      band.scale.x = 0.75 + Math.sin(clock.elapsedTime * 7 + band.userData.offset * 12) * 0.18;
+      band.material.opacity = 0.3 + Math.sin(clock.elapsedTime * 4 + band.userData.offset * 8) * 0.18;
+    });
   });
 
   volcanoes.forEach((volcano) => {
     const pulse = 0.7 + Math.sin(clock.elapsedTime * 4 + volcano.userData.pulse) * 0.28;
     volcano.userData.glow.intensity = 1.2 + pulse;
     volcano.userData.crater.scale.setScalar(0.95 + pulse * 0.08);
+    volcano.userData.spewTimer -= delta;
+    if (volcano.userData.spewTimer <= 0) {
+      spawnVolcanoLava(volcano);
+      volcano.userData.spewTimer = THREE.MathUtils.randFloat(0.55, 1.05);
+    }
   });
 
   const lavaHit = lavaRivers.some((river) => distanceToSegment2D(player.position, river.userData.start, river.userData.end) < river.userData.width * 0.55);
@@ -1987,6 +2111,35 @@ function distanceToSegment2D(point, start, end) {
 
   const t = THREE.MathUtils.clamp(((px - sx) * dx + (pz - sz) * dz) / lengthSq, 0, 1);
   return Math.hypot(px - (sx + dx * t), pz - (sz + dz * t));
+}
+
+function spawnVolcanoLava(volcano) {
+  if (lavaBombs.length > 70) return;
+
+  const origin = volcano.localToWorld(new THREE.Vector3(0, 8.9, 0));
+  const count = THREE.MathUtils.randInt(2, 4);
+  for (let i = 0; i < count; i += 1) {
+    const material = materials.lavaCore.clone();
+    material.opacity = THREE.MathUtils.randFloat(0.72, 0.95);
+    const bomb = new THREE.Mesh(
+      new THREE.SphereGeometry(THREE.MathUtils.randFloat(0.12, 0.28), 10, 8),
+      material,
+    );
+    bomb.position.copy(origin);
+    const angle = THREE.MathUtils.randFloat(0, Math.PI * 2);
+    const speed = THREE.MathUtils.randFloat(2.8, 5.8);
+    bomb.userData.velocity = new THREE.Vector3(
+      Math.sin(angle) * speed,
+      THREE.MathUtils.randFloat(7.2, 10.5),
+      Math.cos(angle) * speed,
+    );
+    bomb.userData.life = THREE.MathUtils.randFloat(1.2, 1.8);
+    bomb.userData.maxLife = bomb.userData.life;
+    bomb.castShadow = false;
+    lavaBombs.push(bomb);
+    scene.add(bomb);
+    game.lavaSpewCount += 1;
+  }
 }
 
 function updateCapture(delta) {
@@ -2059,7 +2212,10 @@ function updateRocket(delta, elapsed) {
   if (game.phase === "launching") {
     game.launchTimer += delta;
     const lift = game.launchTimer * game.launchTimer * 14;
-    rocket.position.set(rocketHome.x, rocketHome.y + lift, rocketHome.z);
+    const launchBase = game.launchOrigin === "planet"
+      ? new THREE.Vector3(8, planetHeight(8, 20), 20)
+      : rocketHome;
+    rocket.position.set(launchBase.x, launchBase.y + lift, launchBase.z);
     rocket.rotation.set(Math.sin(elapsed * 12) * 0.025, Math.sin(elapsed * 9) * 0.025, 0);
     updateRocketFlame(1, true);
     game.cameraShake = Math.max(game.cameraShake, 0.09);
@@ -2071,7 +2227,8 @@ function updateRocket(delta, elapsed) {
   }
 
   if (game.phase === "space") {
-    const toPlanet = destinationPlanet.position.clone().sub(rocket.position);
+    const targetPlanet = game.flightTarget === "desert" ? originalPlanet : destinationPlanet;
+    const toPlanet = targetPlanet.position.clone().sub(rocket.position);
     const distance = toPlanet.length();
     const direction = toPlanet.normalize();
     const steer = tempVec.set(0, 0, 0);
@@ -2091,9 +2248,14 @@ function updateRocket(delta, elapsed) {
     );
     updateRocketFlame(0.92 + Math.sin(elapsed * 20) * 0.08, false);
     destinationPlanet.rotation.y += delta * 0.18;
+    originalPlanet.rotation.y -= delta * 0.16;
 
     if (distance < 23) {
-      landOnNewPlanet();
+      if (game.flightTarget === "desert") {
+        landBackOnDesert();
+      } else {
+        landOnNewPlanet();
+      }
     }
   }
 }
@@ -2155,24 +2317,55 @@ function spawnRocketSmoke() {
   }
 }
 
-function beginRocketBoarding() {
+function beginRocketBoarding(origin = game.phase) {
   game.phase = "launching";
+  game.launchOrigin = origin;
+  game.flightTarget = origin === "planet" ? "desert" : "planet";
   game.launchTimer = 0;
   game.won = false;
   player.visible = false;
+  game.chickenPassenger = origin === "planet" ? boardChickenPassenger() : false;
+  if (rocketChickenPassenger) {
+    rocketChickenPassenger.visible = game.chickenPassenger;
+  }
   playerVelocity.set(0, 0, 0);
   playerVerticalVelocity = 0;
   setWorldMode("launching");
-  setStatus("Growlithe rider jumped into the rocket. Launching.", 3.2);
+  setStatus(
+    game.chickenPassenger
+      ? "Rocket launching back home with a chicken passenger."
+      : "Growlithe rider jumped into the rocket. Launching.",
+    3.2,
+  );
 }
 
 function beginSpaceFlight() {
   game.phase = "space";
-  shipVelocity.set(0, 8, -32);
-  rocket.position.set(0, 72, 36);
-  rocket.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0.1, -1).normalize());
+  if (game.flightTarget === "desert") {
+    shipVelocity.set(0, 8, 32);
+    rocket.position.set(0, 72, -36);
+    rocket.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0.1, 1).normalize());
+  } else {
+    shipVelocity.set(0, 8, -32);
+    rocket.position.set(0, 72, 36);
+    rocket.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0.1, -1).normalize());
+  }
   setWorldMode("space");
-  setStatus("Outer space. Fly to the green planet to escape the piglins.", 4);
+  setStatus(
+    game.flightTarget === "desert"
+      ? "Outer space. Fly back to the original desert planet."
+      : "Outer space. Fly to the green planet to escape the piglins.",
+    4,
+  );
+}
+
+function boardChickenPassenger() {
+  const nearest = getNearestChicken();
+  if (!nearest || nearest.distance > 10) return false;
+
+  nearest.chicken.userData.eaten = true;
+  nearest.chicken.visible = false;
+  return true;
 }
 
 function landOnNewPlanet() {
@@ -2188,13 +2381,47 @@ function landOnNewPlanet() {
   playerVerticalVelocity = 0;
   rocket.position.set(8, planetHeight(8, 20), 20);
   rocket.rotation.set(0, 0.32, 0);
+  if (rocketChickenPassenger) rocketChickenPassenger.visible = false;
   shipVelocity.set(0, 0, 0);
   setStatus("You landed on a different planet. The piglins are far away.", 8);
 }
 
+function landBackOnDesert() {
+  game.phase = "desert";
+  game.escaped = false;
+  game.won = false;
+  setWorldMode("desert");
+  player.visible = true;
+  player.position.set(rocketHome.x + 3.6, groundY(rocketHome.x + 3.6, rocketHome.z + 1.2), rocketHome.z + 1.2);
+  player.rotation.y = yawForDirection(rocket.position.clone().sub(player.position));
+  game.targetYaw = player.rotation.y;
+  player.userData.grounded = true;
+  playerVerticalVelocity = 0;
+  rocket.position.copy(rocketHome);
+  rocket.rotation.set(0, 0, 0);
+  shipVelocity.set(0, 0, 0);
+
+  if (rocketChickenPassenger) rocketChickenPassenger.visible = false;
+  if (game.chickenPassenger) {
+    game.returnedChicken = true;
+    desertChicken.visible = true;
+    desertChicken.userData.eaten = false;
+    desertChicken.position.set(rocketHome.x + 5.2, groundY(rocketHome.x + 5.2, rocketHome.z + 3.5), rocketHome.z + 3.5);
+    desertChicken.rotation.y = -0.8;
+  }
+
+  game.chickenPassenger = false;
+  setStatus(
+    game.returnedChicken
+      ? "Back on the original planet with a chicken passenger."
+      : "Back on the original planet.",
+    8,
+  );
+}
+
 function setWorldMode(mode) {
-  const showDesert = mode === "desert" || mode === "launching";
-  const showPlanet = mode === "planet";
+  const showDesert = mode === "desert" || (mode === "launching" && game.launchOrigin === "desert");
+  const showPlanet = mode === "planet" || (mode === "launching" && game.launchOrigin === "planet");
   const showSpacePlanet = mode === "space";
 
   desertObjects.forEach((object) => {
@@ -2204,13 +2431,17 @@ function setWorldMode(mode) {
     object.visible = showPlanet;
   });
 
-  destinationPlanet.visible = showSpacePlanet;
+  destinationPlanet.visible = showSpacePlanet && game.flightTarget === "planet";
+  originalPlanet.visible = showSpacePlanet && game.flightTarget === "desert";
   mountGosha.visible = showDesert;
   captureRing.visible = showDesert;
   captureParticles.visible = showDesert;
   piglins.forEach((piglin) => {
     piglin.visible = showDesert && !piglin.userData.isDown;
   });
+  if (desertChicken) {
+    desertChicken.visible = showDesert && game.returnedChicken;
+  }
   rocket.visible = true;
 }
 
@@ -2249,16 +2480,23 @@ function updateHud(delta) {
   game.statusTimer = Math.max(0, game.statusTimer - delta);
   if (game.statusTimer <= 0 && !game.won && !game.lost) {
     if (game.phase === "space") {
-      ui.status.textContent = "Steer the rocket to the green planet.";
+      ui.status.textContent = game.flightTarget === "desert"
+        ? "Steer the rocket back to the original planet."
+        : "Steer the rocket to the green planet.";
     } else if (game.phase === "planet") {
       const nearestChicken = getNearestChicken();
-      if (nearestChicken && nearestChicken.distance < 3.2) {
+      const rocketDistance = player.position.distanceTo(rocket.position);
+      if (rocketDistance < rocket.userData.boardRadius) {
+        ui.status.textContent = "Press Space to return in the rocket with a nearby chicken.";
+      } else if (nearestChicken && nearestChicken.distance < 3.2) {
         ui.status.textContent = "Press E to let Growlithe eat the chicken.";
       } else {
         ui.status.textContent = "Evade lava rivers and volcanoes while finding chickens.";
       }
     } else if (game.phase === "launching") {
-      ui.status.textContent = "Rocket climbing out of the desert.";
+      ui.status.textContent = game.launchOrigin === "planet"
+        ? "Rocket climbing off the green planet."
+        : "Rocket climbing out of the desert.";
     } else {
       const distance = player.position.distanceTo(mountGosha.position);
       const rocketDistance = player.position.distanceTo(rocket.position);
@@ -2277,7 +2515,9 @@ function updateHud(delta) {
   ui.missionEyebrow.textContent = game.phase === "planet" ? "Escaped" : "Growlithe Rider";
   ui.missionTitle.textContent =
     game.phase === "space"
-      ? "Fly To The Planet"
+      ? game.flightTarget === "desert"
+        ? "Fly Back Home"
+        : "Fly To The Planet"
       : game.phase === "planet"
         ? "Safe On A New Planet"
         : "Capture Mount Gosha";
@@ -2286,7 +2526,9 @@ function updateHud(delta) {
   ui.captureFill.style.width = `${game.capture}%`;
   ui.captureText.textContent = `${Math.round(game.capture)}%`;
   ui.piglinScore.textContent = `${game.piglinsDefeated}`;
-  const nearRocket = game.phase === "desert" && player.position.distanceTo(rocket.position) < rocket.userData.boardRadius;
+  const nearRocket =
+    (game.phase === "desert" || game.phase === "planet") &&
+    player.position.distanceTo(rocket.position) < rocket.userData.boardRadius;
   ui.rocketPrompt.classList.toggle("visible", nearRocket);
   updateTargetIndicator();
 }
@@ -2454,6 +2696,25 @@ function updateEffects(delta) {
       smokePuffs.splice(i, 1);
     }
   }
+
+  for (let i = lavaBombs.length - 1; i >= 0; i -= 1) {
+    const bomb = lavaBombs[i];
+    bomb.userData.life -= delta;
+    bomb.userData.velocity.y -= 9.8 * delta;
+    bomb.position.addScaledVector(bomb.userData.velocity, delta);
+    bomb.scale.setScalar(1 + (1 - bomb.userData.life / bomb.userData.maxLife) * 0.7);
+    bomb.material.opacity = Math.max(0, bomb.userData.life / bomb.userData.maxLife);
+
+    const ground = planetHeight(bomb.position.x, bomb.position.z) + 0.06;
+    if (bomb.position.y <= ground || bomb.userData.life <= 0) {
+      bomb.position.y = ground;
+      createHitBurst(bomb.position.clone(), new THREE.Vector3(0, 1, 0));
+      scene.remove(bomb);
+      bomb.geometry.dispose();
+      bomb.material.dispose();
+      lavaBombs.splice(i, 1);
+    }
+  }
 }
 
 function updateDamageNumbers(delta) {
@@ -2513,6 +2774,11 @@ function resetGame() {
   game.blockFlashTimer = 0;
   game.lastBlockTime = 0;
   game.hazardCooldown = 0;
+  game.flightTarget = "planet";
+  game.launchOrigin = "desert";
+  game.chickenPassenger = false;
+  game.returnedChicken = false;
+  game.lavaSpewCount = 0;
   player.position.set(0, groundY(0, 8), 8);
   player.rotation.y = 0;
   game.targetYaw = 0;
@@ -2526,7 +2792,10 @@ function resetGame() {
   rocket.rotation.set(0, 0, 0);
   updateRocketFlame(0);
   rocketFlame.userData.power = 0;
+  if (rocketChickenPassenger) rocketChickenPassenger.visible = false;
+  if (desertChicken) desertChicken.visible = false;
   clearSmokePuffs();
+  clearLavaBombs();
   clearDamageNumbers();
   mountGosha.userData.base.set(8, 0, -74);
   materials.gosha.emissive.setHex(0x000000);
@@ -2578,6 +2847,16 @@ function clearSmokePuffs() {
   }
 }
 
+function clearLavaBombs() {
+  for (let i = lavaBombs.length - 1; i >= 0; i -= 1) {
+    const bomb = lavaBombs[i];
+    scene.remove(bomb);
+    bomb.geometry.dispose();
+    bomb.material.dispose();
+    lavaBombs.splice(i, 1);
+  }
+}
+
 function clearDamageNumbers() {
   for (let i = damageNumbers.length - 1; i >= 0; i -= 1) {
     damageNumbers[i].element.remove();
@@ -2595,8 +2874,12 @@ function updateTargetIndicator() {
   const width = window.innerWidth;
   const height = window.innerHeight;
   const margin = width < 760 ? 58 : 72;
-  const targetObject = game.phase === "space" ? destinationPlanet : mountGosha;
-  const label = game.phase === "space" ? "Planet" : "Gosha";
+  const targetObject = game.phase === "space"
+    ? game.flightTarget === "desert"
+      ? originalPlanet
+      : destinationPlanet
+    : mountGosha;
+  const label = game.phase === "space" ? (game.flightTarget === "desert" ? "Home" : "Planet") : "Gosha";
   const target = targetObject.position.clone();
   target.y += game.phase === "space" ? 0 : 3.2;
   target.project(camera);
@@ -2620,7 +2903,7 @@ function updateTargetIndicator() {
   const angle = Math.atan2(y - height / 2, x - width / 2) + Math.PI / 2;
   const distance =
     game.phase === "space"
-      ? rocket.position.distanceTo(destinationPlanet.position)
+      ? rocket.position.distanceTo(targetObject.position)
       : player.position.distanceTo(mountGosha.position);
 
   ui.goshaIndicator.style.left = `${x}px`;
