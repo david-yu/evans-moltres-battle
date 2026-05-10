@@ -297,6 +297,69 @@ h1 {
   border-width: 2px 2px 0 0;
 }
 
+#combatFeedback {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.damage-number {
+  position: absolute;
+  min-width: 42px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.72);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+}
+
+.damage-number.enemy {
+  color: #fff0c2;
+  border: 1px solid rgba(255, 225, 107, 0.5);
+}
+
+.damage-number.player {
+  color: #ffe2ea;
+  border: 1px solid rgba(255, 92, 122, 0.56);
+}
+
+.damage-number.block {
+  color: #dffcff;
+  border: 1px solid rgba(109, 246, 255, 0.72);
+  box-shadow: 0 0 18px rgba(109, 246, 255, 0.35);
+}
+
+#blockFlash {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  padding: 10px 16px;
+  border: 2px solid rgba(109, 246, 255, 0.82);
+  border-radius: 8px;
+  background: rgba(3, 16, 24, 0.76);
+  color: #e9fdff;
+  font-size: clamp(1rem, 3vw, 1.45rem);
+  font-weight: 950;
+  letter-spacing: 0;
+  opacity: 0;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%) scale(0.88);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  box-shadow: 0 0 34px rgba(109, 246, 255, 0.38);
+}
+
+#blockFlash.visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 @media (max-width: 760px) {
   .hud-top {
     align-items: flex-start;

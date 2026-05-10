@@ -110,6 +110,13 @@ try {
     await page.keyboard.press("KeyF");
     await page.waitForTimeout(260);
     const afterHitState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+    const beforeBlockState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placeBlockingPiglinInSwordRange();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.keyboard.press("KeyF");
+    await page.waitForTimeout(160);
+    const afterBlockState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
 
     const rockState = await page.evaluate(() => {
       window.__GOSHA_GAME_DEBUG__.placePlayerOnRock();
@@ -141,6 +148,19 @@ try {
     });
     await page.waitForTimeout(1100);
     const afterLandingState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+    const beforeHazardState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerOnLava();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.waitForTimeout(260);
+    const afterHazardState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+    const beforeChickenState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerNearChicken();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.keyboard.press("KeyE");
+    await page.waitForTimeout(260);
+    const afterChickenState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
     await page.close();
 
     if (!result.ok) {
@@ -190,16 +210,20 @@ try {
       throw new Error(`${viewport.name}: player did not respond to movement input`);
     }
 
-    if (turnDelta < 0.3) {
-      throw new Error(`${viewport.name}: player did not respond to turn input`);
+    if (turnDelta > 0.2) {
+      throw new Error(`${viewport.name}: left/right turn input moved the player instead of only turning`);
     }
 
     if (Math.abs(forwardYaw) > 0.55) {
       throw new Error(`${viewport.name}: Growlithe faces the wrong way when moving forward`);
     }
 
-    if (Math.abs(turnYaw + Math.PI / 2) > 0.85) {
-      throw new Error(`${viewport.name}: Growlithe does not turn to face right movement`);
+    if (turnYaw > -0.38 || turnYaw < -0.95) {
+      throw new Error(`${viewport.name}: Growlithe did not keep turning while right was held`);
+    }
+
+    if (afterMoveState.maxLegLift < 0.03) {
+      throw new Error(`${viewport.name}: Growlithe legs did not lift while walking`);
     }
 
     if (!beforeState.hasShoulderShield) {
@@ -208,9 +232,18 @@ try {
 
     if (
       afterHitState.piglinsDefeated <= beforeHitState.piglinsDefeated ||
-      !afterHitState.firstPiglin.isDown
+      !afterHitState.firstPiglin.isDown ||
+      afterHitState.damageNumbers <= beforeHitState.damageNumbers
     ) {
-      throw new Error(`${viewport.name}: sword hit did not take down the piglin`);
+      throw new Error(`${viewport.name}: sword hit did not show damage and take down the piglin`);
+    }
+
+    if (
+      afterBlockState.lastBlockTime <= beforeBlockState.lastBlockTime ||
+      !afterBlockState.blockFlashActive ||
+      afterBlockState.piglinsDefeated > beforeBlockState.piglinsDefeated
+    ) {
+      throw new Error(`${viewport.name}: blocked piglin attack did not show a block effect`);
     }
 
     if (afterRockState.danceTimer <= 0 || rockState.phase !== "desert") {
@@ -229,8 +262,31 @@ try {
       throw new Error(`${viewport.name}: jumping into the rocket did not reach space flight`);
     }
 
+    if (!afterLaunchState.rocketFlameVisible || afterLaunchState.rocketFlamePower < 0.6 || afterLaunchState.smokePuffs < 3) {
+      throw new Error(`${viewport.name}: rocket blastoff did not produce visible flames and smoke`);
+    }
+
     if (afterLandingState.phase !== "planet" || !afterLandingState.escaped || afterLandingState.piglinsVisible > 0) {
       throw new Error(`${viewport.name}: rocket did not land on the different planet away from piglins`);
+    }
+
+    if (afterLandingState.lavaRivers <= 0 || afterLandingState.volcanoes <= 0) {
+      throw new Error(`${viewport.name}: destination planet has no lava rivers or volcanoes`);
+    }
+
+    if (afterHazardState.health >= beforeHazardState.health || afterHazardState.damageNumbers <= beforeHazardState.damageNumbers) {
+      throw new Error(`${viewport.name}: lava hazard did not damage Growlithe`);
+    }
+
+    if (afterLandingState.chickensVisible <= 0) {
+      throw new Error(`${viewport.name}: destination planet has no visible chickens`);
+    }
+
+    if (
+      afterChickenState.chickensEaten <= beforeChickenState.chickensEaten ||
+      afterChickenState.chickensVisible >= beforeChickenState.chickensVisible
+    ) {
+      throw new Error(`${viewport.name}: Growlithe did not eat the nearby chicken`);
     }
 
     if (mountDelta < 0.02) {
@@ -242,7 +298,7 @@ try {
         3,
       )}, colored=${result.coloredRatio.toFixed(3)}, playerDelta=${playerDelta.toFixed(
         2,
-      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, mountDelta=${mountDelta.toFixed(
+      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, blockEffect=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, rocketSmoke=yes, lavaHazards=yes, chickens=yes, mountDelta=${mountDelta.toFixed(
         2,
       )}, shoulderShield=yes, screenshot=${screenshotPath}`,
     );
