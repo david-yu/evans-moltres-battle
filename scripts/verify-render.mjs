@@ -69,6 +69,7 @@ try {
       const hud = document.querySelector("#hud").getBoundingClientRect();
       const indicator = document.querySelector("#goshaIndicator").getBoundingClientRect();
       const indicatorText = document.querySelector("#goshaIndicator").textContent.trim();
+      const restart = document.querySelector("#restartButton").getBoundingClientRect();
 
       return {
         ok: true,
@@ -79,6 +80,8 @@ try {
         indicatorWidth: Math.round(indicator.width),
         indicatorHeight: Math.round(indicator.height),
         indicatorText,
+        restartWidth: Math.round(restart.width),
+        restartHeight: Math.round(restart.height),
         brightRatio: bright / samples,
         coloredRatio: colored / samples,
         alphaRatio: alpha / samples,
@@ -104,9 +107,40 @@ try {
       window.__GOSHA_GAME_DEBUG__.placePiglinInSwordRange();
       return window.__GOSHA_GAME_DEBUG__.state();
     });
-    await page.keyboard.press("Space");
+    await page.keyboard.press("KeyF");
     await page.waitForTimeout(260);
     const afterHitState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+
+    const rockState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerOnRock();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.waitForTimeout(260);
+    const afterRockState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+
+    const goshaJumpState = await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerOverGosha();
+      return window.__GOSHA_GAME_DEBUG__.state();
+    });
+    await page.waitForTimeout(420);
+    const afterGoshaJumpState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+
+    await page.click("#restartButton");
+    await page.waitForTimeout(240);
+    const afterRestartState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+
+    await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placePlayerAtRocket();
+    });
+    await page.keyboard.press("Space");
+    await page.waitForTimeout(3100);
+    const afterLaunchState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
+
+    await page.evaluate(() => {
+      window.__GOSHA_GAME_DEBUG__.placeRocketNearPlanet();
+    });
+    await page.waitForTimeout(1100);
+    const afterLandingState = await page.evaluate(() => window.__GOSHA_GAME_DEBUG__.state());
     await page.close();
 
     if (!result.ok) {
@@ -123,6 +157,10 @@ try {
       !result.indicatorText.includes("Gosha")
     ) {
       throw new Error(`${viewport.name}: Mount Gosha indicator is missing or too small`);
+    }
+
+    if (result.restartWidth < 70 || result.restartHeight < 30) {
+      throw new Error(`${viewport.name}: restart button is missing or too small`);
     }
 
     if (result.brightRatio < 0.08 || result.coloredRatio < 0.04 || result.alphaRatio < 0.95) {
@@ -157,11 +195,11 @@ try {
     }
 
     if (Math.abs(forwardYaw) > 0.55) {
-      throw new Error(`${viewport.name}: spider faces the wrong way when moving forward`);
+      throw new Error(`${viewport.name}: Growlithe faces the wrong way when moving forward`);
     }
 
     if (Math.abs(turnYaw + Math.PI / 2) > 0.85) {
-      throw new Error(`${viewport.name}: spider does not turn to face right movement`);
+      throw new Error(`${viewport.name}: Growlithe does not turn to face right movement`);
     }
 
     if (
@@ -169,6 +207,26 @@ try {
       !afterHitState.firstPiglin.isDown
     ) {
       throw new Error(`${viewport.name}: sword hit did not take down the piglin`);
+    }
+
+    if (afterRockState.danceTimer <= 0 || rockState.phase !== "desert") {
+      throw new Error(`${viewport.name}: landing on a rock did not start the dance`);
+    }
+
+    if (!afterGoshaJumpState.won || afterGoshaJumpState.capture < 100 || goshaJumpState.phase !== "desert") {
+      throw new Error(`${viewport.name}: jumping onto Mount Gosha did not capture it`);
+    }
+
+    if (afterRestartState.phase !== "desert" || afterRestartState.won || afterRestartState.escaped) {
+      throw new Error(`${viewport.name}: restart button did not reset the game`);
+    }
+
+    if (afterLaunchState.phase !== "space" || afterLaunchState.playerVisible) {
+      throw new Error(`${viewport.name}: jumping into the rocket did not reach space flight`);
+    }
+
+    if (afterLandingState.phase !== "planet" || !afterLandingState.escaped || afterLandingState.piglinsVisible > 0) {
+      throw new Error(`${viewport.name}: rocket did not land on the different planet away from piglins`);
     }
 
     if (mountDelta < 0.02) {
@@ -180,7 +238,7 @@ try {
         3,
       )}, colored=${result.coloredRatio.toFixed(3)}, playerDelta=${playerDelta.toFixed(
         2,
-      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, mountDelta=${mountDelta.toFixed(
+      )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, mountDelta=${mountDelta.toFixed(
         2,
       )}, screenshot=${screenshotPath}`,
     );

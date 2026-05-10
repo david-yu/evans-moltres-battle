@@ -7,7 +7,10 @@ const tempVec = new THREE.Vector3();
 const tempVec2 = new THREE.Vector3();
 const tempVec3 = new THREE.Vector3();
 const playerVelocity = new THREE.Vector3();
+const shipVelocity = new THREE.Vector3();
 const yAxis = new THREE.Vector3(0, 1, 0);
+const rocketHome = new THREE.Vector3(-24, 0, -9);
+const destinationPlanetPosition = new THREE.Vector3(0, 62, -250);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050813);
@@ -38,9 +41,14 @@ const ui = {
   piglinScore: document.querySelector("#piglinScore"),
   status: document.querySelector("#status"),
   capturePrompt: document.querySelector("#capturePrompt"),
+  rocketPrompt: document.querySelector("#rocketPrompt"),
   goshaIndicator: document.querySelector("#goshaIndicator"),
   goshaArrow: document.querySelector("#goshaArrow"),
+  targetLabel: document.querySelector("#targetLabel"),
   goshaDistance: document.querySelector("#goshaDistance"),
+  missionEyebrow: document.querySelector("#missionEyebrow"),
+  missionTitle: document.querySelector("#missionTitle"),
+  restartButton: document.querySelector("#restartButton"),
 };
 
 const keys = new Map();
@@ -50,10 +58,15 @@ const game = {
   piglinsDefeated: 0,
   won: false,
   lost: false,
+  escaped: false,
+  phase: "desert",
   attackCooldown: 0,
   attackTimer: 0,
   cameraShake: 0,
   statusTimer: 0,
+  launchTimer: 0,
+  danceTimer: 0,
+  rocketFlame: 0,
 };
 
 const materials = {
@@ -70,14 +83,22 @@ const materials = {
     color: 0x8b7465,
     roughness: 0.98,
   }),
-  spider: new THREE.MeshStandardMaterial({
-    color: 0x141820,
-    roughness: 0.82,
-    metalness: 0.06,
+  growlitheFur: new THREE.MeshStandardMaterial({
+    color: 0xc76535,
+    roughness: 0.86,
   }),
-  spiderHighlight: new THREE.MeshStandardMaterial({
-    color: 0x233044,
-    roughness: 0.75,
+  growlitheCream: new THREE.MeshStandardMaterial({
+    color: 0xf2dfbb,
+    roughness: 0.92,
+  }),
+  growlitheStripe: new THREE.MeshStandardMaterial({
+    color: 0x1c2934,
+    roughness: 0.74,
+  }),
+  growlitheNose: new THREE.MeshStandardMaterial({
+    color: 0x1d242c,
+    roughness: 0.45,
+    metalness: 0.08,
   }),
   rider: new THREE.MeshStandardMaterial({
     color: 0x2f7cff,
@@ -113,6 +134,56 @@ const materials = {
     opacity: 0.95,
     depthWrite: false,
   }),
+  rocketWhite: new THREE.MeshStandardMaterial({
+    color: 0xf4f0df,
+    roughness: 0.36,
+    metalness: 0.16,
+  }),
+  rocketRed: new THREE.MeshStandardMaterial({
+    color: 0xbd2d3a,
+    roughness: 0.5,
+    metalness: 0.1,
+  }),
+  rocketGlass: new THREE.MeshStandardMaterial({
+    color: 0x7de7ff,
+    emissive: 0x1f8fb0,
+    emissiveIntensity: 0.45,
+    roughness: 0.18,
+    metalness: 0.2,
+  }),
+  rocketFlame: new THREE.MeshBasicMaterial({
+    color: 0xffc547,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  }),
+  shield: new THREE.MeshStandardMaterial({
+    color: 0x1d425c,
+    roughness: 0.48,
+    metalness: 0.42,
+  }),
+  shieldSpike: new THREE.MeshStandardMaterial({
+    color: 0xd8f7ff,
+    emissive: 0x4ab9d2,
+    emissiveIntensity: 0.28,
+    roughness: 0.24,
+    metalness: 0.55,
+  }),
+  planetGround: new THREE.MeshStandardMaterial({
+    color: 0x3aa879,
+    roughness: 0.88,
+    metalness: 0.02,
+  }),
+  planetGroundDark: new THREE.MeshStandardMaterial({
+    color: 0x28655f,
+    roughness: 0.9,
+  }),
+  planetGlow: new THREE.MeshStandardMaterial({
+    color: 0x65d8b9,
+    emissive: 0x1d766a,
+    emissiveIntensity: 0.55,
+    roughness: 0.42,
+  }),
   gold: new THREE.MeshStandardMaterial({
     color: 0xe5b84f,
     roughness: 0.42,
@@ -145,14 +216,28 @@ let swordTrail;
 let mountGosha;
 let captureRing;
 let captureParticles;
+let rocket;
+let rocketFlame;
+let destinationPlanet;
+let planetSurface;
 const piglins = [];
+const rocks = [];
+const desertObjects = [];
+const planetObjects = [];
 const impactBursts = [];
+let playerVerticalVelocity = 0;
 
 setupLighting();
 createSky();
 createTerrain();
 createOutposts();
-player = createSpiderJockey();
+rocket = createRocket();
+scene.add(rocket);
+destinationPlanet = createDestinationPlanet();
+scene.add(destinationPlanet);
+planetSurface = createPlanetSurface();
+scene.add(planetSurface);
+player = createGrowlitheJockey();
 scene.add(player);
 mountGosha = createMountGosha();
 scene.add(mountGosha);
@@ -170,13 +255,24 @@ window.__GOSHA_GAME_DEBUG__ = {
       z: player.position.z,
     },
     playerYaw: player.rotation.y,
+    playerVisible: player.visible,
     mount: {
       x: mountGosha.position.x,
       y: mountGosha.position.y,
       z: mountGosha.position.z,
     },
+    rocket: {
+      x: rocket.position.x,
+      y: rocket.position.y,
+      z: rocket.position.z,
+      visible: rocket.visible,
+    },
+    phase: game.phase,
+    escaped: game.escaped,
     health: game.health,
     capture: game.capture,
+    won: game.won,
+    danceTimer: game.danceTimer,
     piglinsDefeated: game.piglinsDefeated,
     piglinsVisible: piglins.filter((piglin) => piglin.visible).length,
     firstPiglin: {
@@ -202,6 +298,36 @@ window.__GOSHA_GAME_DEBUG__ = {
     game.attackCooldown = 0;
     return window.__GOSHA_GAME_DEBUG__.state();
   },
+  placePlayerAtRocket: () => {
+    player.position.set(rocketHome.x + 1.8, getCurrentGroundY(rocketHome.x + 1.8, rocketHome.z), rocketHome.z);
+    player.rotation.y = yawForDirection(rocket.position.clone().sub(player.position));
+    playerVerticalVelocity = 0;
+    player.userData.grounded = true;
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
+  placePlayerOnRock: () => {
+    const rock = rocks[0];
+    player.position.set(rock.position.x, rock.userData.platformTop + 0.02, rock.position.z);
+    playerVerticalVelocity = -1;
+    player.userData.grounded = false;
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
+  placePlayerOverGosha: () => {
+    player.position.set(mountGosha.position.x, mountGosha.position.y + 6.2, mountGosha.position.z);
+    playerVerticalVelocity = -2;
+    player.userData.grounded = false;
+    game.capture = 0;
+    game.won = false;
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
+  placeRocketNearPlanet: () => {
+    game.phase = "space";
+    player.visible = false;
+    setWorldMode("space");
+    rocket.position.copy(destinationPlanet.position).add(new THREE.Vector3(0, 0, 24));
+    shipVelocity.set(0, 0, -18);
+    return window.__GOSHA_GAME_DEBUG__.state();
+  },
 };
 
 window.addEventListener("resize", onResize);
@@ -209,14 +335,21 @@ window.addEventListener("keydown", (event) => {
   keys.set(event.code, true);
   if (event.code === "Space") {
     event.preventDefault();
+    requestJumpOrBoard();
+  }
+  if (event.code === "KeyF") {
     swingSword();
   }
-  if (event.code === "KeyR" && (game.lost || game.won)) {
+  if (event.code === "KeyR") {
     resetGame();
   }
 });
 window.addEventListener("keyup", (event) => keys.set(event.code, false));
-window.addEventListener("pointerdown", swingSword);
+window.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button")) return;
+  swingSword();
+});
+ui.restartButton.addEventListener("click", resetGame);
 
 animate();
 
@@ -318,6 +451,7 @@ function createTerrain() {
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
+  desertObjects.push(ground);
 
   for (let i = 0; i < 42; i += 1) {
     const rock = new THREE.Mesh(
@@ -343,7 +477,11 @@ function createTerrain() {
     );
     rock.castShadow = true;
     rock.receiveShadow = true;
+    rock.userData.platformRadius = Math.max(1.1, rock.scale.x * 1.65);
+    rock.userData.platformTop = rock.position.y + rock.scale.y * 1.45;
+    rocks.push(rock);
     scene.add(rock);
+    desertObjects.push(rock);
   }
 }
 
@@ -400,49 +538,236 @@ function createOutposts() {
     });
 
     scene.add(group);
+    desertObjects.push(group);
   });
 }
 
-function createSpiderJockey() {
+function createRocket() {
   const group = new THREE.Group();
-  group.name = "Spider Jockey Player";
+  group.name = "Growlithe Rider Escape Rocket";
+  rocketHome.y = groundY(rocketHome.x, rocketHome.z);
+  group.position.copy(rocketHome);
 
-  const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.92, 28, 16), materials.spider);
-  abdomen.scale.set(1.2, 0.62, 1.45);
-  abdomen.position.set(0, 1.15, 0.22);
-  abdomen.castShadow = true;
-  group.add(abdomen);
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.4, 0.35, 40), materials.rock);
+  pad.position.y = 0.18;
+  pad.receiveShadow = true;
+  group.add(pad);
 
-  const thorax = new THREE.Mesh(new THREE.SphereGeometry(0.72, 28, 16), materials.spiderHighlight);
-  thorax.scale.set(1.25, 0.72, 1.05);
-  thorax.position.set(0, 1.25, -0.85);
-  thorax.castShadow = true;
-  group.add(thorax);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.92, 5.2, 28), materials.rocketWhite);
+  body.position.y = 3.0;
+  body.castShadow = true;
+  group.add(body);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.55, 28), materials.rocketRed);
+  nose.position.y = 6.35;
+  nose.castShadow = true;
+  group.add(nose);
+
+  const windowMesh = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 12), materials.rocketGlass);
+  windowMesh.position.set(0, 4.35, -0.72);
+  windowMesh.scale.set(1, 1, 0.28);
+  windowMesh.castShadow = true;
+  group.add(windowMesh);
+
+  for (let i = 0; i < 3; i += 1) {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.2, 1.08), materials.rocketRed);
+    const angle = (i / 3) * Math.PI * 2;
+    fin.position.set(Math.sin(angle) * 0.86, 1.18, Math.cos(angle) * 0.86);
+    fin.rotation.y = angle;
+    fin.rotation.z = Math.sin(angle) * 0.18;
+    fin.castShadow = true;
+    group.add(fin);
+  }
+
+  rocketFlame = new THREE.Mesh(new THREE.ConeGeometry(0.72, 2.4, 22), materials.rocketFlame);
+  rocketFlame.position.y = 0.2;
+  rocketFlame.rotation.x = Math.PI;
+  rocketFlame.visible = false;
+  group.add(rocketFlame);
+
+  group.userData.home = rocketHome.clone();
+  group.userData.boardRadius = 5.6;
+  return group;
+}
+
+function createDestinationPlanet() {
+  const group = new THREE.Group();
+  group.name = "Escape Planet";
+  group.position.copy(destinationPlanetPosition);
+  group.visible = false;
+
+  const planet = new THREE.Mesh(new THREE.SphereGeometry(18, 48, 24), materials.planetGlow);
+  planet.castShadow = false;
+  group.add(planet);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(22, 29, 72),
+    new THREE.MeshBasicMaterial({
+      color: 0xb3ffee,
+      transparent: true,
+      opacity: 0.48,
+      side: THREE.DoubleSide,
+    }),
+  );
+  ring.rotation.set(1.1, 0.2, 0.45);
+  group.add(ring);
+
+  return group;
+}
+
+function createPlanetSurface() {
+  const group = new THREE.Group();
+  group.name = "Different Planet Surface";
+  group.visible = false;
+
+  const geometry = new THREE.PlaneGeometry(worldSize * 1.45, worldSize * 1.45, 90, 90);
+  const position = geometry.attributes.position;
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const z = position.getY(i);
+    position.setZ(i, planetHeight(x, z));
+  }
+  geometry.computeVertexNormals();
+
+  const ground = new THREE.Mesh(geometry, materials.planetGround);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  group.add(ground);
+
+  for (let i = 0; i < 18; i += 1) {
+    const crystal = new THREE.Mesh(
+      new THREE.ConeGeometry(THREE.MathUtils.randFloat(0.28, 0.7), THREE.MathUtils.randFloat(1.4, 3.4), 5),
+      materials.planetGroundDark,
+    );
+    const x = THREE.MathUtils.randFloatSpread(worldSize * 0.9);
+    const z = THREE.MathUtils.randFloatSpread(worldSize * 0.9);
+    crystal.position.set(x, planetHeight(x, z) + crystal.geometry.parameters.height / 2, z);
+    crystal.rotation.z = THREE.MathUtils.randFloat(-0.18, 0.18);
+    crystal.castShadow = true;
+    group.add(crystal);
+  }
+
+  planetObjects.push(group);
+  return group;
+}
+
+function createGrowlitheJockey() {
+  const group = new THREE.Group();
+  group.name = "Growlithe Rider Player";
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.96, 30, 18), materials.growlitheFur);
+  body.scale.set(1.18, 0.72, 1.62);
+  body.position.set(0, 1.15, 0.12);
+  body.castShadow = true;
+  group.add(body);
+
+  const mane = new THREE.Mesh(new THREE.SphereGeometry(0.92, 24, 16), materials.growlitheCream);
+  mane.scale.set(1.05, 0.9, 0.95);
+  mane.position.set(0, 1.42, -1.02);
+  mane.castShadow = true;
+  group.add(mane);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.66, 24, 16), materials.growlitheFur);
+  head.scale.set(0.9, 0.78, 0.96);
+  head.position.set(0, 1.86, -1.76);
+  head.castShadow = true;
+  group.add(head);
+
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 12), materials.growlitheCream);
+  muzzle.scale.set(1.25, 0.72, 0.82);
+  muzzle.position.set(0, 1.74, -2.27);
+  muzzle.castShadow = true;
+  group.add(muzzle);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), materials.growlitheNose);
+  nose.scale.set(1.15, 0.8, 0.82);
+  nose.position.set(0, 1.82, -2.6);
+  nose.castShadow = true;
+  group.add(nose);
 
   const eyeMaterial = new THREE.MeshStandardMaterial({
-    color: 0x55fff7,
-    emissive: 0x17bdb6,
-    emissiveIntensity: 1,
+    color: 0xf8fbff,
+    roughness: 0.28,
   });
-  [-0.26, 0.26].forEach((x) => {
+  const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x1b2230 });
+  [-0.24, 0.24].forEach((x) => {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8), eyeMaterial);
-    eye.position.set(x, 1.44, -1.48);
+    eye.position.set(x, 1.94, -2.22);
+    eye.scale.set(1, 0.9, 0.35);
     group.add(eye);
+
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), pupilMaterial);
+    pupil.position.set(x * 1.02, 1.94, -2.29);
+    pupil.scale.set(1, 1, 0.25);
+    group.add(pupil);
   });
 
-  const legZ = [-1.2, -0.55, 0.08, 0.74];
-  legZ.forEach((z, index) => {
-    group.add(createSpiderLeg(-1, z, index));
-    group.add(createSpiderLeg(1, z, index + 4));
+  [-0.48, 0.48].forEach((x) => {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.74, 4), materials.growlitheFur);
+    ear.position.set(x, 2.08, -1.72);
+    ear.rotation.set(0.28, x > 0 ? -0.42 : 0.42, x > 0 ? -0.75 : 0.75);
+    ear.scale.y = 0.82;
+    ear.castShadow = true;
+    group.add(ear);
+
+    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.48, 4), materials.growlitheCream);
+    inner.position.set(x * 1.02, 2.04, -1.79);
+    inner.rotation.copy(ear.rotation);
+    inner.scale.y = 0.72;
+    group.add(inner);
   });
 
-  const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.16, 0.8), materials.gold);
-  saddle.position.set(0, 1.68, -0.16);
+  const crestPositions = [
+    [0, 2.34, -1.82, 0.36],
+    [0, 2.55, -1.54, 0.48],
+    [0, 2.7, -1.25, 0.36],
+  ];
+  crestPositions.forEach(([x, y, z, scale]) => {
+    const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.34 * scale, 0.96 * scale, 5), materials.growlitheCream);
+    tuft.position.set(x, y, z);
+    tuft.rotation.x = -0.68;
+    tuft.castShadow = true;
+    group.add(tuft);
+  });
+
+  [-0.42, 0.42].forEach((x) => {
+    [-0.4, 0.48].forEach((z, stripeIndex) => {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.72), materials.growlitheStripe);
+      stripe.position.set(x, 1.45, z);
+      stripe.rotation.set(0.36, 0.18 * Math.sign(x), x > 0 ? -0.64 : 0.64);
+      stripe.castShadow = true;
+      group.add(stripe);
+      stripe.userData.stripeIndex = stripeIndex;
+    });
+  });
+
+  [-0.62, 0.62].forEach((x) => {
+    group.add(createGrowlitheLeg(x, -0.92, x > 0 ? 0 : 1));
+    group.add(createGrowlitheLeg(x, 0.78, x > 0 ? 2 : 3));
+  });
+
+  const tailBase = new THREE.Group();
+  tailBase.position.set(0, 1.66, 1.68);
+  tailBase.rotation.set(0.35, 0, 0);
+  group.add(tailBase);
+
+  const tailCurl = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.15, 12, 34, Math.PI * 1.48), materials.growlitheCream);
+  tailCurl.rotation.set(0.12, Math.PI / 2, 0);
+  tailCurl.castShadow = true;
+  tailBase.add(tailCurl);
+
+  const tailTip = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 10), materials.growlitheCream);
+  tailTip.position.set(0.04, 0.33, 0.32);
+  tailTip.castShadow = true;
+  tailBase.add(tailTip);
+
+  const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.16, 0.86), materials.gold);
+  saddle.position.set(0, 1.82, -0.03);
   saddle.castShadow = true;
   group.add(saddle);
 
   const rider = new THREE.Group();
-  rider.position.set(0, 1.88, -0.18);
+  rider.position.set(0, 2.02, -0.12);
   group.add(rider);
 
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.78, 0.32), materials.rider);
@@ -450,10 +775,10 @@ function createSpiderJockey() {
   torso.castShadow = true;
   rider.add(torso);
 
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), materials.riderSkin);
-  head.position.y = 1.0;
-  head.castShadow = true;
-  rider.add(head);
+  const riderHead = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.44, 0.44), materials.riderSkin);
+  riderHead.position.y = 1.0;
+  riderHead.castShadow = true;
+  rider.add(riderHead);
 
   const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.2, 0.52), materials.gold);
   helmet.position.y = 1.26;
@@ -465,6 +790,7 @@ function createSpiderJockey() {
   leftArm.rotation.z = -0.22;
   leftArm.castShadow = true;
   rider.add(leftArm);
+  rider.add(createShoulderShield());
 
   const rightArm = new THREE.Group();
   rightArm.position.set(0.42, 0.65, -0.03);
@@ -486,27 +812,78 @@ function createSpiderJockey() {
   group.add(swordTrail);
 
   group.userData.walkCycle = 0;
+  group.userData.grounded = true;
   group.userData.legs = group.children.filter((child) => child.userData.isLeg);
   return group;
 }
 
-function createSpiderLeg(side, z, index) {
+function createGrowlitheLeg(x, z, index) {
   const group = new THREE.Group();
   group.userData.isLeg = true;
   group.userData.index = index;
-  group.position.set(side * 0.62, 1.05, z);
+  group.position.set(x, 0.82, z);
 
-  const knee = new THREE.Vector3(side * 0.68, -0.34, z < -0.8 ? -0.28 : 0.02);
-  const foot = new THREE.Vector3(side * 1.2, -0.92, z < -0.6 ? -0.42 : 0.16);
-  group.add(cylinderBetween(new THREE.Vector3(0, 0, 0), knee, 0.075, materials.spider));
-  group.add(cylinderBetween(knee, foot, 0.065, materials.spider));
+  const upper = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.74, 0.34), materials.growlitheFur);
+  upper.position.y = 0.16;
+  upper.castShadow = true;
+  group.add(upper);
 
-  const claw = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 6), materials.spiderHighlight);
-  claw.position.copy(foot);
-  claw.castShadow = true;
-  group.add(claw);
+  const cuff = new THREE.Mesh(new THREE.SphereGeometry(0.25, 14, 10), materials.growlitheCream);
+  cuff.scale.set(1.15, 0.75, 1.05);
+  cuff.position.y = -0.16;
+  cuff.castShadow = true;
+  group.add(cuff);
+
+  const paw = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), materials.growlitheCream);
+  paw.scale.set(1.22, 0.42, 1.0);
+  paw.position.set(0, -0.48, -0.05);
+  paw.castShadow = true;
+  group.add(paw);
+
+  for (let i = -1; i <= 1; i += 1) {
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 8), materials.shieldSpike);
+    claw.position.set(i * 0.09, -0.51, -0.24);
+    claw.rotation.x = -Math.PI / 2;
+    group.add(claw);
+  }
 
   return group;
+}
+
+function createShoulderShield() {
+  const shield = new THREE.Group();
+  shield.name = "Spiked Shoulder Shield";
+  shield.position.set(-0.54, 0.62, -0.02);
+  shield.rotation.set(0.08, 0.2, 0.72);
+
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 0.16, 8), materials.shield);
+  plate.scale.set(1, 0.42, 1.22);
+  plate.rotation.x = Math.PI / 2;
+  plate.castShadow = true;
+  shield.add(plate);
+
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.035, 8, 24), materials.gold);
+  rim.rotation.x = Math.PI / 2;
+  rim.scale.z = 1.22;
+  rim.castShadow = true;
+  shield.add(rim);
+
+  const spikePositions = [
+    [0, 0.14, -0.42],
+    [-0.31, 0.12, -0.16],
+    [0.31, 0.12, -0.16],
+    [0, 0.12, 0.28],
+  ];
+
+  spikePositions.forEach(([x, y, z]) => {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.28, 10), materials.shieldSpike);
+    spike.position.set(x, y, z);
+    spike.rotation.x = Math.PI / 2;
+    spike.castShadow = true;
+    shield.add(spike);
+  });
+
+  return shield;
 }
 
 function createDiamondSword() {
@@ -735,15 +1112,18 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.04);
   const elapsed = clock.elapsedTime;
 
-  if (!game.lost && !game.won) {
+  if (!game.lost && game.phase !== "launching" && game.phase !== "space") {
     updatePlayer(delta);
-    updatePiglins(delta);
-    updateCapture(delta);
+    if (game.phase === "desert" && !game.won) {
+      updatePiglins(delta);
+      updateCapture(delta);
+    }
   } else {
     updateIdlePlayer(delta);
   }
 
   updateMount(elapsed);
+  updateRocket(delta, elapsed);
   updateEffects(delta);
   updateCamera(delta, elapsed);
   updateHud(delta);
@@ -758,7 +1138,7 @@ function updatePlayer(delta) {
   if (keys.get("KeyD") || keys.get("ArrowRight")) move.x += 1;
 
   const hasMovement = move.lengthSq() > 0;
-  if (hasMovement) {
+  if (hasMovement && game.danceTimer <= 0 && !game.won) {
     move.normalize();
     const speed = keys.get("ShiftLeft") || keys.get("ShiftRight") ? 14 : 9.2;
     player.rotation.y = dampAngle(player.rotation.y, yawForDirection(move), 13, delta);
@@ -771,7 +1151,14 @@ function updatePlayer(delta) {
   player.position.addScaledVector(playerVelocity, delta);
   player.position.x = THREE.MathUtils.clamp(player.position.x, -worldSize + 10, worldSize - 10);
   player.position.z = THREE.MathUtils.clamp(player.position.z, -worldSize + 10, worldSize - 10);
-  player.position.y = groundY(player.position.x, player.position.z);
+  updatePlayerVertical(delta);
+  updateJumpInteractions();
+
+  if (game.danceTimer > 0) {
+    game.danceTimer = Math.max(0, game.danceTimer - delta);
+    player.rotation.y += delta * 5.2;
+    player.position.y += Math.sin(clock.elapsedTime * 18) * 0.018;
+  }
 
   const bob = Math.sin(player.userData.walkCycle * 2) * Math.min(playerVelocity.length() / 9, 1) * 0.07;
   player.children[0].position.y = 1.15 + bob;
@@ -808,6 +1195,79 @@ function updateIdlePlayer(delta) {
   player.userData.legs.forEach((leg) => {
     const side = leg.position.x > 0 ? 1 : -1;
     leg.rotation.z = side * (0.06 + Math.sin(player.userData.walkCycle + leg.userData.index) * 0.035);
+  });
+}
+
+function updatePlayerVertical(delta) {
+  const surface = getLandingSurface(player.position.x, player.position.z);
+
+  if (!player.userData.grounded || playerVerticalVelocity !== 0) {
+    playerVerticalVelocity -= 24 * delta;
+    player.position.y += playerVerticalVelocity * delta;
+
+    if (player.position.y <= surface.y) {
+      player.position.y = surface.y;
+      playerVerticalVelocity = 0;
+      player.userData.grounded = true;
+      onPlayerLanded(surface);
+    } else {
+      player.userData.grounded = false;
+    }
+  } else {
+    player.position.y = surface.y;
+    player.userData.grounded = true;
+  }
+}
+
+function updateJumpInteractions() {
+  if (game.phase !== "desert" || playerVerticalVelocity >= 0 || player.userData.grounded) return;
+
+  const flatDistanceToGosha = flatDistance(player.position, mountGosha.position);
+  if (flatDistanceToGosha < 3.6 && player.position.y <= mountGosha.position.y + 5.4) {
+    captureMountByJump();
+  }
+}
+
+function onPlayerLanded(surface) {
+  if (surface.type === "rock" && game.phase === "desert") {
+    startRockDance();
+  }
+}
+
+function requestJumpOrBoard() {
+  if (game.lost || game.phase === "launching" || game.phase === "space") return;
+
+  if (game.phase === "desert" && player.position.distanceTo(rocket.position) < rocket.userData.boardRadius) {
+    beginRocketBoarding();
+    return;
+  }
+
+  if (player.userData.grounded) {
+    playerVerticalVelocity = 10.8;
+    player.userData.grounded = false;
+    if (game.phase === "desert") {
+      setStatus("Jump onto Mount Gosha to capture, or land on a rock to dance.", 1.8);
+    }
+  }
+}
+
+function startRockDance() {
+  game.danceTimer = 2.35;
+  setStatus("Rock dance. The piglins have to watch.", 2.35);
+}
+
+function captureMountByJump() {
+  game.capture = 100;
+  game.won = true;
+  player.position.set(mountGosha.position.x, mountGosha.position.y + 4.2, mountGosha.position.z);
+  playerVerticalVelocity = 0;
+  player.userData.grounded = true;
+  game.cameraShake = Math.max(game.cameraShake, 0.16);
+  setStatus("You jumped onto Mount Gosha and captured it.", 20);
+  mountGosha.children.forEach((child) => {
+    if (child.material?.emissive) {
+      child.material.emissive.setHex(0x14f7ff);
+    }
   });
 }
 
@@ -910,7 +1370,7 @@ function updateCapture(delta) {
 
   if (game.capture >= 100 && !game.won) {
     game.won = true;
-    setStatus("Mount Gosha captured. The spider jockeys own the dune route.", 20);
+    setStatus("Mount Gosha captured. The Growlithe rider owns the dune route.", 20);
     mountGosha.children.forEach((child) => {
       if (child.material?.emissive) {
         child.material.emissive.setHex(0x14f7ff);
@@ -920,6 +1380,8 @@ function updateCapture(delta) {
 }
 
 function updateMount(elapsed) {
+  if (game.phase !== "desert") return;
+
   const base = mountGosha.userData.base;
   mountGosha.position.x = base.x + Math.sin(elapsed * 0.42) * 2.4;
   mountGosha.position.z = base.z + Math.cos(elapsed * 0.35) * 1.5;
@@ -940,10 +1402,142 @@ function updateMount(elapsed) {
   captureParticles.rotation.y -= 0.25 * clock.getDelta();
 }
 
+function updateRocket(delta, elapsed) {
+  if (!rocket) return;
+
+  if (game.phase === "desert") {
+    rocket.position.y = rocketHome.y + Math.sin(elapsed * 1.6) * 0.035;
+    rocket.rotation.set(0, Math.sin(elapsed * 0.6) * 0.02, 0);
+    updateRocketFlame(0);
+    return;
+  }
+
+  if (game.phase === "launching") {
+    game.launchTimer += delta;
+    const lift = game.launchTimer * game.launchTimer * 14;
+    rocket.position.set(rocketHome.x, rocketHome.y + lift, rocketHome.z);
+    rocket.rotation.set(Math.sin(elapsed * 12) * 0.025, Math.sin(elapsed * 9) * 0.025, 0);
+    updateRocketFlame(1);
+    game.cameraShake = Math.max(game.cameraShake, 0.09);
+
+    if (game.launchTimer >= 2.65) {
+      beginSpaceFlight();
+    }
+    return;
+  }
+
+  if (game.phase === "space") {
+    const toPlanet = destinationPlanet.position.clone().sub(rocket.position);
+    const distance = toPlanet.length();
+    const direction = toPlanet.normalize();
+    const steer = tempVec.set(0, 0, 0);
+
+    if (keys.get("KeyA") || keys.get("ArrowLeft")) steer.x -= 1;
+    if (keys.get("KeyD") || keys.get("ArrowRight")) steer.x += 1;
+    if (keys.get("KeyW") || keys.get("ArrowUp")) steer.y += 1;
+    if (keys.get("KeyS") || keys.get("ArrowDown")) steer.y -= 1;
+
+    shipVelocity.lerp(direction.multiplyScalar(35).add(steer.multiplyScalar(13)), 0.045);
+    rocket.position.addScaledVector(shipVelocity, delta);
+
+    const flyDirection = shipVelocity.lengthSq() > 1 ? shipVelocity.clone().normalize() : direction;
+    rocket.quaternion.slerp(
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), flyDirection),
+      0.14,
+    );
+    updateRocketFlame(0.92 + Math.sin(elapsed * 20) * 0.08);
+    destinationPlanet.rotation.y += delta * 0.18;
+
+    if (distance < 23) {
+      landOnNewPlanet();
+    }
+  }
+}
+
+function updateRocketFlame(power) {
+  if (!rocketFlame) return;
+  rocketFlame.visible = power > 0.03;
+  rocketFlame.material.opacity = THREE.MathUtils.clamp(power, 0, 1) * 0.82;
+  const scale = 0.65 + power * (0.5 + Math.sin(clock.elapsedTime * 28) * 0.08);
+  rocketFlame.scale.set(scale, scale, scale);
+}
+
+function beginRocketBoarding() {
+  game.phase = "launching";
+  game.launchTimer = 0;
+  game.won = false;
+  player.visible = false;
+  playerVelocity.set(0, 0, 0);
+  playerVerticalVelocity = 0;
+  setWorldMode("launching");
+  setStatus("Growlithe rider jumped into the rocket. Launching.", 3.2);
+}
+
+function beginSpaceFlight() {
+  game.phase = "space";
+  shipVelocity.set(0, 8, -32);
+  rocket.position.set(0, 72, 36);
+  rocket.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0.1, -1).normalize());
+  setWorldMode("space");
+  setStatus("Outer space. Fly to the green planet to escape the piglins.", 4);
+}
+
+function landOnNewPlanet() {
+  game.phase = "planet";
+  game.escaped = true;
+  game.won = false;
+  setWorldMode("planet");
+  player.visible = true;
+  player.position.set(0, planetHeight(0, 12), 12);
+  player.rotation.y = 0;
+  player.userData.grounded = true;
+  playerVerticalVelocity = 0;
+  rocket.position.set(8, planetHeight(8, 20), 20);
+  rocket.rotation.set(0, 0.32, 0);
+  shipVelocity.set(0, 0, 0);
+  setStatus("You landed on a different planet. The piglins are far away.", 8);
+}
+
+function setWorldMode(mode) {
+  const showDesert = mode === "desert" || mode === "launching";
+  const showPlanet = mode === "planet";
+  const showSpacePlanet = mode === "space";
+
+  desertObjects.forEach((object) => {
+    object.visible = showDesert;
+  });
+  planetObjects.forEach((object) => {
+    object.visible = showPlanet;
+  });
+
+  destinationPlanet.visible = showSpacePlanet;
+  mountGosha.visible = showDesert;
+  captureRing.visible = showDesert;
+  captureParticles.visible = showDesert;
+  piglins.forEach((piglin) => {
+    piglin.visible = showDesert && !piglin.userData.isDown;
+  });
+  rocket.visible = true;
+}
+
 function updateCamera(delta, elapsed) {
+  if (game.phase === "launching") {
+    const desired = rocket.position.clone().add(new THREE.Vector3(8, 5, 17));
+    camera.position.lerp(desired, 1 - Math.pow(0.001, delta));
+    camera.lookAt(rocket.position.clone().add(new THREE.Vector3(0, 3, 0)));
+    return;
+  }
+
+  if (game.phase === "space") {
+    const desired = rocket.position.clone().add(new THREE.Vector3(0, 7, 24));
+    camera.position.lerp(desired, 1 - Math.pow(0.001, delta));
+    camera.lookAt(rocket.position.clone().add(shipVelocity.clone().normalize().multiplyScalar(8)));
+    return;
+  }
+
   const cameraOffset = new THREE.Vector3(0, 5.8, 10.8).applyAxisAngle(yAxis, player.rotation.y);
   const desired = player.position.clone().add(cameraOffset);
-  desired.y = Math.max(desired.y, groundY(desired.x, desired.z) + 3.2);
+  desired.y = Math.max(desired.y, getCurrentGroundY(desired.x, desired.z) + 3.2);
 
   if (game.cameraShake > 0) {
     game.cameraShake = Math.max(0, game.cameraShake - delta);
@@ -960,22 +1554,42 @@ function updateCamera(delta, elapsed) {
 function updateHud(delta) {
   game.statusTimer = Math.max(0, game.statusTimer - delta);
   if (game.statusTimer <= 0 && !game.won && !game.lost) {
-    const distance = player.position.distanceTo(mountGosha.position);
-    if (distance < 9) {
-      ui.status.textContent = "Mount Gosha is inside the capture circle.";
-    } else if (distance < 28) {
-      ui.status.textContent = "The evil mount is close.";
+    if (game.phase === "space") {
+      ui.status.textContent = "Steer the rocket to the green planet.";
+    } else if (game.phase === "planet") {
+      ui.status.textContent = "New planet reached. Piglins cannot follow.";
+    } else if (game.phase === "launching") {
+      ui.status.textContent = "Rocket climbing out of the desert.";
     } else {
-      ui.status.textContent = "Find the evil mount beyond the dunes.";
+      const distance = player.position.distanceTo(mountGosha.position);
+      const rocketDistance = player.position.distanceTo(rocket.position);
+      if (rocketDistance < rocket.userData.boardRadius) {
+        ui.status.textContent = "Press Space to jump into the rocket.";
+      } else if (distance < 9) {
+        ui.status.textContent = "Jump onto Mount Gosha or hold E inside the capture circle.";
+      } else if (distance < 28) {
+        ui.status.textContent = "The evil mount is close.";
+      } else {
+        ui.status.textContent = "Find Mount Gosha, rocks to dance on, or the escape rocket.";
+      }
     }
   }
 
+  ui.missionEyebrow.textContent = game.phase === "planet" ? "Escaped" : "Growlithe Rider";
+  ui.missionTitle.textContent =
+    game.phase === "space"
+      ? "Fly To The Planet"
+      : game.phase === "planet"
+        ? "Safe On A New Planet"
+        : "Capture Mount Gosha";
   ui.healthFill.style.width = `${game.health}%`;
   ui.healthText.textContent = `${Math.round(game.health)}`;
   ui.captureFill.style.width = `${game.capture}%`;
   ui.captureText.textContent = `${Math.round(game.capture)}%`;
   ui.piglinScore.textContent = `${game.piglinsDefeated}`;
-  updateGoshaIndicator();
+  const nearRocket = game.phase === "desert" && player.position.distanceTo(rocket.position) < rocket.userData.boardRadius;
+  ui.rocketPrompt.classList.toggle("visible", nearRocket);
+  updateTargetIndicator();
 }
 
 function swingSword() {
@@ -1093,7 +1707,7 @@ function damagePlayer(amount, message) {
 
   if (game.health <= 0) {
     game.lost = true;
-    setStatus("Spider jockeys down. Remount to try again.", 30);
+    setStatus("Growlithe rider down. Remount to try again.", 30);
   }
 }
 
@@ -1108,19 +1722,34 @@ function resetGame() {
   game.piglinsDefeated = 0;
   game.won = false;
   game.lost = false;
+  game.escaped = false;
+  game.phase = "desert";
   game.attackCooldown = 0;
   game.attackTimer = 0;
   game.cameraShake = 0;
+  game.launchTimer = 0;
+  game.danceTimer = 0;
   player.position.set(0, groundY(0, 8), 8);
   player.rotation.y = 0;
+  player.visible = true;
+  player.userData.grounded = true;
   playerVelocity.set(0, 0, 0);
+  playerVerticalVelocity = 0;
+  shipVelocity.set(0, 0, 0);
+  rocketHome.y = groundY(rocketHome.x, rocketHome.z);
+  rocket.position.copy(rocketHome);
+  rocket.rotation.set(0, 0, 0);
+  updateRocketFlame(0);
   mountGosha.userData.base.set(8, 0, -74);
+  materials.gosha.emissive.setHex(0x000000);
+  materials.goshaGlow.emissive.setHex(0x6a22e4);
 
   piglins.forEach((piglin) => {
     resetPiglin(piglin);
   });
 
-  setStatus("Find the evil mount beyond the dunes.", 3);
+  setWorldMode("desert");
+  setStatus("Find Mount Gosha, rocks to dance on, or the escape rocket.", 3);
   updateHud(0);
 }
 
@@ -1137,12 +1766,19 @@ function resetPiglin(piglin) {
   piglin.userData.velocity.set(0, 0, 0);
 }
 
-function updateGoshaIndicator() {
+function updateTargetIndicator() {
+  if (game.phase === "planet" || game.phase === "launching") {
+    ui.goshaIndicator.style.opacity = "0";
+    return;
+  }
+
   const width = window.innerWidth;
   const height = window.innerHeight;
   const margin = width < 760 ? 58 : 72;
-  const target = mountGosha.position.clone();
-  target.y += 3.2;
+  const targetObject = game.phase === "space" ? destinationPlanet : mountGosha;
+  const label = game.phase === "space" ? "Planet" : "Gosha";
+  const target = targetObject.position.clone();
+  target.y += game.phase === "space" ? 0 : 3.2;
   target.project(camera);
 
   let ndcX = target.x;
@@ -1162,12 +1798,17 @@ function updateGoshaIndicator() {
   const x = onScreen ? unclampedX : THREE.MathUtils.clamp(unclampedX, margin, width - margin);
   const y = onScreen ? unclampedY : THREE.MathUtils.clamp(unclampedY, margin, height - margin);
   const angle = Math.atan2(y - height / 2, x - width / 2) + Math.PI / 2;
-  const distance = player.position.distanceTo(mountGosha.position);
+  const distance =
+    game.phase === "space"
+      ? rocket.position.distanceTo(destinationPlanet.position)
+      : player.position.distanceTo(mountGosha.position);
 
   ui.goshaIndicator.style.left = `${x}px`;
   ui.goshaIndicator.style.top = `${y}px`;
+  ui.goshaIndicator.style.opacity = "1";
   ui.goshaIndicator.classList.toggle("on-target", onScreen);
   ui.goshaArrow.style.transform = `rotate(${angle}rad)`;
+  ui.targetLabel.textContent = label;
   ui.goshaDistance.textContent = `${Math.max(1, Math.round(distance))}m`;
 }
 
@@ -1212,6 +1853,40 @@ function duneHeight(x, z) {
 
 function groundY(x, z) {
   return duneHeight(x, z);
+}
+
+function planetHeight(x, z) {
+  const roll = Math.sin(x * 0.055) * 0.65 + Math.cos(z * 0.047) * 0.7;
+  const small = Math.sin((x - z) * 0.13) * 0.12;
+  return roll + small - 0.7;
+}
+
+function getCurrentGroundY(x, z) {
+  return game.phase === "planet" ? planetHeight(x, z) : groundY(x, z);
+}
+
+function getLandingSurface(x, z) {
+  let surface = {
+    type: game.phase === "planet" ? "planet" : "ground",
+    y: getCurrentGroundY(x, z),
+  };
+
+  if (game.phase !== "desert") {
+    return surface;
+  }
+
+  rocks.forEach((rock) => {
+    const distance = Math.hypot(x - rock.position.x, z - rock.position.z);
+    if (distance < rock.userData.platformRadius && rock.userData.platformTop > surface.y) {
+      surface = { type: "rock", y: rock.userData.platformTop, rock };
+    }
+  });
+
+  return surface;
+}
+
+function flatDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
 function onResize() {

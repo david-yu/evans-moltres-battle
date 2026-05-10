@@ -1,8 +1,8 @@
-# Spider Jockeys: Mount Gosha
+# Growlithe Rider: Mount Gosha
 
 A browser-based 3D game set on a Tatooine-style desert world under open space.
-Ride as a spider jockey, fight piglins with a diamond sword, and capture the evil
-Mount Gosha inside the glowing ring.
+Ride a Growlithe-style mount, fight piglins with a diamond sword, capture the
+evil Mount Gosha, dance on rocks, or escape by rocket to a different planet.
 
 ## Run
 
@@ -15,6 +15,7 @@ npm run dev
 
 - `WASD` or arrow keys: move
 - `Shift`: dash
-- `Space` or click: swing the diamond sword
+- `Space`: jump, or jump into the rocket when close
+- `F` or click: swing the diamond sword
 - `E`: capture Mount Gosha while inside the capture circle
-- `R`: restart after winning or losing
+- `R` or the Restart button: restart the game

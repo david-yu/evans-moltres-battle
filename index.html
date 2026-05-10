@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Spider Jockeys: Mount Gosha</title>
+    <title>Growlithe Rider: Mount Gosha</title>
   </head>
   <body>
     <div id="app"></div>
@@ -11,12 +11,15 @@
     <main id="hud" aria-label="Game HUD">
       <section class="hud-top" aria-label="Mission status">
         <div>
-          <p class="eyebrow">Spider Jockeys</p>
-          <h1>Capture Mount Gosha</h1>
+          <p id="missionEyebrow" class="eyebrow">Growlithe Rider</p>
+          <h1 id="missionTitle">Capture Mount Gosha</h1>
         </div>
-        <div class="score-block">
-          <span>Piglins</span>
-          <strong id="piglinScore">0</strong>
+        <div class="hud-actions">
+          <button id="restartButton" type="button">Restart</button>
+          <div class="score-block">
+            <span>Piglins</span>
+            <strong id="piglinScore">0</strong>
+          </div>
         </div>
       </section>
 
@@ -44,9 +47,10 @@
       <div id="status" role="status">Find the evil mount beyond the dunes.</div>
       <div id="goshaIndicator" aria-hidden="true">
         <div id="goshaArrow"></div>
-        <span>Gosha <strong id="goshaDistance">--m</strong></span>
+        <span><span id="targetLabel">Gosha</span> <strong id="goshaDistance">--m</strong></span>
       </div>
       <div id="capturePrompt" aria-hidden="true">Capture</div>
+      <div id="rocketPrompt" aria-hidden="true">Jump Into Rocket</div>
       <div class="reticle" aria-hidden="true"></div>
     </main>
 
