@@ -158,16 +158,18 @@ const materials = {
     depthWrite: false,
   }),
   shield: new THREE.MeshStandardMaterial({
-    color: 0x1d425c,
-    roughness: 0.48,
-    metalness: 0.42,
+    color: 0x245f8f,
+    emissive: 0x082b44,
+    emissiveIntensity: 0.2,
+    roughness: 0.42,
+    metalness: 0.5,
   }),
   shieldSpike: new THREE.MeshStandardMaterial({
-    color: 0xd8f7ff,
-    emissive: 0x4ab9d2,
-    emissiveIntensity: 0.28,
+    color: 0xf0fcff,
+    emissive: 0x64d7f2,
+    emissiveIntensity: 0.45,
     roughness: 0.24,
-    metalness: 0.55,
+    metalness: 0.62,
   }),
   planetGround: new THREE.MeshStandardMaterial({
     color: 0x3aa879,
@@ -275,6 +277,7 @@ window.__GOSHA_GAME_DEBUG__ = {
     danceTimer: game.danceTimer,
     piglinsDefeated: game.piglinsDefeated,
     piglinsVisible: piglins.filter((piglin) => piglin.visible).length,
+    hasShoulderShield: Boolean(player.getObjectByName("Spiked Shoulder Shield")),
     firstPiglin: {
       visible: piglins[0].visible,
       isDown: Boolean(piglins[0].userData.isDown),
@@ -853,30 +856,39 @@ function createGrowlitheLeg(x, z, index) {
 function createShoulderShield() {
   const shield = new THREE.Group();
   shield.name = "Spiked Shoulder Shield";
-  shield.position.set(-0.54, 0.62, -0.02);
-  shield.rotation.set(0.08, 0.2, 0.72);
+  shield.position.set(-0.58, 0.74, -0.08);
+  shield.rotation.set(0.12, -0.2, 0.86);
+  shield.userData.isSpikedShoulderShield = true;
 
-  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 0.16, 8), materials.shield);
-  plate.scale.set(1, 0.42, 1.22);
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.62, 0.2, 10), materials.shield);
+  plate.scale.set(1, 0.5, 1.28);
   plate.rotation.x = Math.PI / 2;
   plate.castShadow = true;
   shield.add(plate);
 
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.035, 8, 24), materials.gold);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.055, 10, 32), materials.gold);
   rim.rotation.x = Math.PI / 2;
-  rim.scale.z = 1.22;
+  rim.scale.z = 1.28;
   rim.castShadow = true;
   shield.add(rim);
 
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 10), materials.shieldSpike);
+  boss.scale.set(1, 0.6, 1);
+  boss.position.y = 0.13;
+  boss.castShadow = true;
+  shield.add(boss);
+
   const spikePositions = [
-    [0, 0.14, -0.42],
-    [-0.31, 0.12, -0.16],
-    [0.31, 0.12, -0.16],
-    [0, 0.12, 0.28],
+    [0, 0.22, -0.64, 0.44],
+    [-0.43, 0.2, -0.28, 0.36],
+    [0.43, 0.2, -0.28, 0.36],
+    [-0.36, 0.19, 0.3, 0.32],
+    [0.36, 0.19, 0.3, 0.32],
+    [0, 0.18, 0.58, 0.36],
   ];
 
-  spikePositions.forEach(([x, y, z]) => {
-    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.28, 10), materials.shieldSpike);
+  spikePositions.forEach(([x, y, z, length]) => {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.085, length, 12), materials.shieldSpike);
     spike.position.set(x, y, z);
     spike.rotation.x = Math.PI / 2;
     spike.castShadow = true;

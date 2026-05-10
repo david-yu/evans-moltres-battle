@@ -202,6 +202,10 @@ try {
       throw new Error(`${viewport.name}: Growlithe does not turn to face right movement`);
     }
 
+    if (!beforeState.hasShoulderShield) {
+      throw new Error(`${viewport.name}: spiked shoulder shield is missing from the rider`);
+    }
+
     if (
       afterHitState.piglinsDefeated <= beforeHitState.piglinsDefeated ||
       !afterHitState.firstPiglin.isDown
@@ -240,7 +244,7 @@ try {
         2,
       )}, turnYaw=${turnYaw.toFixed(2)}, swordHit=yes, rockDance=yes, goshaJump=yes, rocketEscape=yes, mountDelta=${mountDelta.toFixed(
         2,
-      )}, screenshot=${screenshotPath}`,
+      )}, shoulderShield=yes, screenshot=${screenshotPath}`,
     );
   }
 } finally {
