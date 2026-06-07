@@ -13,6 +13,41 @@ const rocketHome = new THREE.Vector3(-24, 0, -9);
 const destinationPlanetPosition = new THREE.Vector3(0, 62, -250);
 const originalPlanetPosition = new THREE.Vector3(0, 54, 230);
 const cameraTurnHoldSeconds = 2.2;
+const DRAGON_RESPAWN_DELAY = 2.1;
+const DRAGON_TRANSFORM_FLASH = 0.58;
+const DRAGON_RAINBOW_DURATION = 1.35;
+const DRAGON_COLOR_PALETTES = [
+  {
+    body: { color: 0xb62222, emissive: 0x4f0808 },
+    belly: { color: 0xffa25b, emissive: 0x5f1c07 },
+    wing: { color: 0x8c1018, emissive: 0x3a0305 },
+    accent: { color: 0x63110d, emissive: 0x2a0805 },
+  },
+  {
+    body: { color: 0x2b4bff, emissive: 0x090f45 },
+    belly: { color: 0x4d90ff, emissive: 0x113c7a },
+    wing: { color: 0x2f5ca0, emissive: 0x173e73 },
+    accent: { color: 0x1b3f7d, emissive: 0x102d5d },
+  },
+  {
+    body: { color: 0x2b8f5a, emissive: 0x06341f },
+    belly: { color: 0x70e29a, emissive: 0x2e7f4e },
+    wing: { color: 0x16552f, emissive: 0x0d3a2a },
+    accent: { color: 0x166d3f, emissive: 0x11381f },
+  },
+  {
+    body: { color: 0xb01ad9, emissive: 0x2d0537 },
+    belly: { color: 0xff9de3, emissive: 0x6b1b6a },
+    wing: { color: 0x8c1470, emissive: 0x3f0d47 },
+    accent: { color: 0xb022a3, emissive: 0x530e54 },
+  },
+];
+const CHICKEN_THROW_SPEED = 17.5;
+const CHICKEN_THROW_UP = 4.8;
+const CHICKEN_THROW_LIFE = 3.8;
+const CHICKEN_PICKUP_DISTANCE = 2.4;
+const CHICKEN_HIT_DRAGON_DISTANCE = 1.72;
+const CHICKEN_THROW_GRAVITY = 17;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050813);
@@ -100,6 +135,11 @@ const game = {
   asteroidSpawnTimer: 0,
   asteroidsDestroyed: 0,
   lastAsteroidHitTime: 0,
+  playerHoldingChicken: false,
+  dragonColorIndex: 0,
+  dragonRespawnTimer: 0,
+  dragonDefeatTimer: 0,
+  dragonRainbowTimer: 0,
 };
 
 const materials = {
@@ -455,6 +495,12 @@ const firebirds = [];
 const pokeballs = [];
 const asteroids = [];
 const spaceShots = [];
+let playerHeldChicken = null;
+let thrownChicken = null;
+let pendingDragonChicken = null;
+let pendingDragonChickenTimer = 0;
+let transformedDragonChicken = null;
+let transformedDragonChickenTimer = 0;
 let playerVerticalVelocity = 0;
 
 setupLighting();
@@ -521,6 +567,7 @@ window.__GOSHA_GAME_DEBUG__ = {
     launchOrigin: game.launchOrigin,
     chickenPassenger: game.chickenPassenger,
     returnedChicken: game.returnedChicken,
+    playerHoldingChicken: game.playerHoldingChicken,
     desertChickenVisible: Boolean(desertChicken?.visible),
     blockFlashActive: game.blockFlashTimer > 0,
     lastBlockTime: game.lastBlockTime,
@@ -541,6 +588,10 @@ window.__GOSHA_GAME_DEBUG__ = {
     dragonActive: game.dragonActive,
     dragonVisible: Boolean(redDragon?.visible),
     dragonFireballs: dragonFireballs.length,
+    dragonDefeatTimer: game.dragonDefeatTimer,
+    dragonRespawnTimer: game.dragonRespawnTimer,
+    dragonRainbowTimer: game.dragonRainbowTimer,
+    dragonColorIndex: game.dragonColorIndex,
     firebirdsVisible: firebirds.length,
     pokeballsVisible: pokeballs.length,
     asteroidsVisible: asteroids.length,
@@ -744,7 +795,7 @@ window.addEventListener("keydown", (event) => {
     if (captureNearestPokeball()) return;
     if (tryCapturePokemon()) return;
     if (game.phase === "planet") {
-      eatNearestChicken();
+      interactWithChicken();
     }
   }
   if (event.code === "KeyR") {
@@ -755,7 +806,7 @@ window.addEventListener("keyup", (event) => keys.set(event.code, false));
 window.addEventListener("pointerdown", (event) => {
   if (event.target.closest("button")) return;
   if (game.phase === "planet") {
-    eatNearestChicken();
+    interactWithChicken();
     return;
   }
   swingSword();
@@ -1455,6 +1506,7 @@ function createFirebird(index) {
   const group = new THREE.Group();
   group.name = `Moltres-Like Firebird ${index + 1}`;
   group.scale.setScalar(1.3);
+  const isRainbow = Math.random() < 0.36;
   const flameParts = [];
 
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.62, 30, 18), materials.firebird);
@@ -1571,6 +1623,17 @@ function createFirebird(index) {
   const glow = new THREE.PointLight(0xff6a1c, 1.55, 15);
   group.add(glow);
 
+  const rainbowParts = [];
+  group.traverse((part) => {
+    if (part.isMesh && part.material?.color) {
+      rainbowParts.push({
+        mesh: part,
+        baseColor: part.material.color.clone(),
+        baseEmissive: part.material.emissive?.clone() || null,
+      });
+    }
+  });
+
   group.userData = {
     velocity: new THREE.Vector3(),
     attackCooldown: THREE.MathUtils.randFloat(0.1, 0.7),
@@ -1579,6 +1642,9 @@ function createFirebird(index) {
     leftWing,
     rightWing,
     flameParts,
+    isRainbow,
+    rainbowParts,
+    rainbowOffset: THREE.MathUtils.randFloat(0, Math.PI * 2),
   };
 
   return group;
@@ -2294,6 +2360,7 @@ function animate() {
       updateFleeingPiglins(delta);
     } else if (game.phase === "planet") {
       updateChickens(delta);
+      updatePlayerChickenActions(delta);
       updatePlanetHazards(delta);
       updateDragonEncounter(delta);
     }
@@ -2751,6 +2818,153 @@ function eatNearestChicken() {
   return true;
 }
 
+function interactWithChicken() {
+  if (game.phase !== "planet" || game.lost) return false;
+
+  if (game.playerHoldingChicken) {
+    return throwCarriedChicken();
+  }
+
+  const nearest = getNearestChicken();
+  if (!nearest) {
+    setStatus("Get closer to a chicken, then press E.", 1.5);
+    return false;
+  }
+
+  if (nearest.distance > CHICKEN_PICKUP_DISTANCE) {
+    setStatus("Get closer to a chicken, then press E.", 1.5);
+    return false;
+  }
+
+  if (game.dragonActive) {
+    grabChickenForThrow(nearest.chicken);
+    return true;
+  }
+
+  return eatNearestChicken();
+}
+
+function grabChickenForThrow(chicken) {
+  if (!chicken) return false;
+  if (game.playerHoldingChicken || playerHeldChicken) {
+    return false;
+  }
+
+  chicken.userData.eaten = true;
+  chicken.visible = false;
+  playerHeldChicken = chicken;
+  game.playerHoldingChicken = true;
+  playerHeldChicken.userData.heldByPlayer = true;
+  setStatus("Grabbed a chicken. Press E again to throw at the dragon.", 2);
+  return true;
+}
+
+function throwCarriedChicken() {
+  if (!game.playerHoldingChicken || !playerHeldChicken) {
+    return false;
+  }
+
+  if (!redDragon?.visible) {
+    setStatus("No dragon in sight. Keep the chicken and move closer first.", 1.4);
+    return false;
+  }
+
+  const distanceToDragon = flatDistance(player.position, redDragon.position);
+  if (distanceToDragon > 10) {
+    setStatus("Move closer to the dragon before throwing.", 1.4);
+    return false;
+  }
+
+  const direction = getPlayerForward(tempVec2).clone();
+  playerHeldChicken.visible = true;
+  playerHeldChicken.userData.heldByPlayer = false;
+  playerHeldChicken.userData.velocity = direction.multiplyScalar(CHICKEN_THROW_SPEED);
+  playerHeldChicken.userData.velocity.y = CHICKEN_THROW_UP;
+  playerHeldChicken.userData.throwLife = CHICKEN_THROW_LIFE;
+  playerHeldChicken.position.copy(
+    player.position
+      .clone()
+      .add(new THREE.Vector3(0, 1.1, 0))
+      .add(getPlayerForward(tempVec2).multiplyScalar(0.8)),
+  );
+
+  thrownChicken = playerHeldChicken;
+  playerHeldChicken = null;
+  game.playerHoldingChicken = false;
+
+  thrownChicken.userData.heldByPlayer = false;
+  thrownChicken.userData.throwState = true;
+  setStatus("You threw the chicken at the dragon.", 1.6);
+  return true;
+}
+
+function clearPlayerHeldChicken() {
+  if (playerHeldChicken) {
+    playerHeldChicken.visible = false;
+    playerHeldChicken.userData.heldByPlayer = false;
+    playerHeldChicken = null;
+  }
+  if (thrownChicken) {
+    thrownChicken.visible = false;
+    thrownChicken.userData.throwState = false;
+    thrownChicken = null;
+  }
+  game.playerHoldingChicken = false;
+}
+
+function updatePlayerChickenActions(delta) {
+  if (game.phase !== "planet") {
+    clearPlayerHeldChicken();
+    return;
+  }
+
+  if (game.dragonDefeatTimer > 0.2) {
+    clearPlayerHeldChicken();
+  }
+
+  if (playerHeldChicken) {
+    playerHeldChicken.visible = true;
+    playerHeldChicken.position.copy(
+      player.position
+        .clone()
+        .add(new THREE.Vector3(0, 1.1, 0))
+        .add(getPlayerForward(tempVec2).multiplyScalar(0.8)),
+    );
+    playerHeldChicken.rotation.set(0, player.rotation.y + Math.PI, 0);
+  }
+
+  if (thrownChicken) {
+    const velocity = thrownChicken.userData.velocity;
+    const life = thrownChicken.userData.throwLife;
+    if (life <= 0) {
+      thrownChicken.visible = false;
+      thrownChicken = null;
+      return;
+    }
+
+    thrownChicken.userData.throwLife = life - delta;
+    thrownChicken.position.addScaledVector(velocity, delta);
+    velocity.y -= CHICKEN_THROW_GRAVITY * delta;
+
+    const distanceToDragon = flatDistance(thrownChicken.position, redDragon?.position || tempVec2);
+    const hitDragon = redDragon?.visible && distanceToDragon < CHICKEN_HIT_DRAGON_DISTANCE && Math.abs(thrownChicken.position.y - redDragon.position.y) < 2.2;
+
+    if (hitDragon) {
+      queueDragonTransformation(thrownChicken);
+      thrownChicken = null;
+      return;
+    }
+
+    const terrain = planetHeight(thrownChicken.position.x, thrownChicken.position.z);
+    if (thrownChicken.position.y <= terrain + 0.06) {
+      thrownChicken.visible = false;
+      thrownChicken = null;
+      return;
+    }
+  }
+
+}
+
 function getNearestChicken() {
   return chickens
     .filter((chicken) => chicken.visible && !chicken.userData.eaten)
@@ -2801,21 +3015,29 @@ function updatePlanetHazards(delta) {
 function startDragonEncounter() {
   clearDragonFireballs();
   clearFirebirds();
+  clearPlayerHeldChicken();
   game.dragonActive = true;
   game.dragonFireTimer = 1.8;
   game.chickensScorched = 0;
-
-  if (redDragon) {
-    redDragon.visible = true;
-    redDragon.position.copy(redDragon.userData.base);
-    redDragon.rotation.set(0, 0, 0);
-    redDragon.scale.setScalar(1.04);
-  }
+  game.dragonRespawnTimer = 0;
+  game.dragonDefeatTimer = 0;
+  game.dragonRainbowTimer = 0;
+  game.dragonColorIndex = 0;
+  summonDragonForCurrentPalette();
 }
 
 function stopDragonEncounter() {
   game.dragonActive = false;
   game.dragonFireTimer = 0;
+  game.dragonRespawnTimer = 0;
+  game.dragonDefeatTimer = 0;
+  game.dragonRainbowTimer = 0;
+  game.dragonColorIndex = 0;
+  pendingDragonChicken = null;
+  pendingDragonChickenTimer = 0;
+  transformedDragonChicken = null;
+  transformedDragonChickenTimer = 0;
+  clearPlayerHeldChicken();
   if (redDragon) {
     redDragon.visible = false;
   }
@@ -2824,10 +3046,133 @@ function stopDragonEncounter() {
   clearPokeballs();
 }
 
+function summonDragonForCurrentPalette() {
+  if (!redDragon) return;
+
+  redDragon.visible = true;
+  redDragon.position.copy(redDragon.userData.base);
+  redDragon.rotation.set(0, 0, 0);
+  redDragon.scale.setScalar(1.04);
+  applyDragonPalette();
+  game.dragonFireTimer = 1.8;
+}
+
+function applyDragonPalette() {
+  if (!redDragon) return;
+
+  const palette = DRAGON_COLOR_PALETTES[game.dragonColorIndex % DRAGON_COLOR_PALETTES.length];
+  const { body, belly, wing, accent } = palette;
+
+  redDragon.traverse((child) => {
+    const material = child.material;
+    if (!material?.color || child.isLight) return;
+    if (material === materials.dragonEye) return;
+
+    if (material === materials.dragonBelly) {
+      material.color.setHex(belly.color);
+      if (material.emissive) material.emissive.setHex(belly.emissive);
+    } else if (material === materials.dragonWing) {
+      material.color.setHex(wing.color);
+      if (material.emissive) material.emissive.setHex(wing.emissive);
+    } else if (material === materials.shieldSpike) {
+      material.color.setHex(accent.color);
+      if (material.emissive) material.emissive.setHex(accent.emissive);
+    } else {
+      material.color.setHex(body.color);
+      if (material.emissive) material.emissive.setHex(body.emissive);
+    }
+  });
+}
+
+function pulseDragonRainbow(delta) {
+  if (game.dragonRainbowTimer <= 0 || !redDragon?.visible) {
+    return;
+  }
+
+  const hueShift = (clock.elapsedTime * 0.39) % 1;
+  let stripe = 0;
+
+  redDragon.traverse((child) => {
+    const material = child.material;
+    if (!material?.color || child.isLight || material === materials.dragonEye) return;
+
+    const hue = (hueShift + stripe * 0.11) % 1;
+    material.color.setHSL(hue, 0.9, 0.58);
+    if (material.emissive) {
+      material.emissive.setHSL(hue, 0.85, 0.34);
+    }
+    stripe += 1;
+  });
+
+  game.dragonRainbowTimer = Math.max(0, game.dragonRainbowTimer - delta);
+  if (game.dragonRainbowTimer <= 0) {
+    applyDragonPalette();
+  }
+}
+
+function advanceDragonColor() {
+  game.dragonColorIndex = (game.dragonColorIndex + 1) % DRAGON_COLOR_PALETTES.length;
+}
+
+function queueDragonTransformation(chicken) {
+  if (!chicken || game.dragonDefeatTimer > 0 || !redDragon?.visible) return;
+
+  pendingDragonChicken = chicken;
+  pendingDragonChickenTimer = DRAGON_TRANSFORM_FLASH;
+  pendingDragonChicken.visible = false;
+  pendingDragonChicken.scale.setScalar(1);
+  game.dragonDefeatTimer = DRAGON_TRANSFORM_FLASH;
+  game.dragonFireTimer = 0;
+  game.dragonRainbowTimer = DRAGON_RAINBOW_DURATION;
+  clearDragonFireballs();
+  advanceDragonColor();
+  setStatus("The dragon was hit and began turning into a chicken!", 2.2);
+}
+
+function updateDragonTransformation(delta) {
+  if (pendingDragonChickenTimer > 0) {
+    pendingDragonChickenTimer = Math.max(0, pendingDragonChickenTimer - delta);
+    if (pendingDragonChickenTimer <= 0 && pendingDragonChicken) {
+      const x = pendingDragonChicken.position.x;
+      const z = pendingDragonChicken.position.z;
+
+      pendingDragonChicken.visible = true;
+      pendingDragonChicken.position.set(x, planetHeight(x, z) + 0.45, z);
+      pendingDragonChicken.rotation.set(0, redDragon ? redDragon.rotation.y : 0, 0);
+      pendingDragonChicken.userData.eaten = true;
+      transformedDragonChicken = pendingDragonChicken;
+      transformedDragonChickenTimer = 1.7;
+      pendingDragonChicken = null;
+      if (redDragon) redDragon.visible = false;
+      game.dragonRespawnTimer = DRAGON_RESPAWN_DELAY;
+      game.dragonFireTimer = 0;
+    }
+  }
+
+  if (transformedDragonChicken) {
+    transformedDragonChickenTimer = Math.max(0, transformedDragonChickenTimer - delta);
+    if (transformedDragonChickenTimer <= 0) {
+      transformedDragonChicken.visible = false;
+      transformedDragonChicken = null;
+    }
+  }
+}
+
 function updateDragonEncounter(delta) {
   if (game.phase !== "planet" || !game.dragonActive) return;
 
   updateDragonFireballs(delta);
+  pulseDragonRainbow(delta);
+  updateDragonTransformation(delta);
+
+  if (game.dragonDefeatTimer > 0) {
+    game.dragonDefeatTimer = Math.max(0, game.dragonDefeatTimer - delta);
+    if (game.dragonDefeatTimer <= 0 && pendingDragonChickenTimer <= 0) {
+      game.dragonRespawnTimer = DRAGON_RESPAWN_DELAY;
+    }
+    updateFirebirds(delta);
+    return;
+  }
 
   if (redDragon?.visible) {
     updateRedDragon(delta);
@@ -2836,6 +3181,11 @@ function updateDragonEncounter(delta) {
     if (game.dragonFireTimer <= 0) {
       spawnDragonFireball();
       game.dragonFireTimer = THREE.MathUtils.randFloat(1.35, 1.95);
+    }
+  } else if (game.dragonRespawnTimer > 0) {
+    game.dragonRespawnTimer = Math.max(0, game.dragonRespawnTimer - delta);
+    if (game.dragonRespawnTimer <= 0) {
+      summonDragonForCurrentPalette();
     }
   }
 
@@ -2939,6 +3289,7 @@ function turnChickenIntoMoltres(chicken, impactPosition) {
   chicken.visible = false;
   game.chickensScorched += 1;
   game.cameraShake = Math.max(game.cameraShake, 0.1);
+  game.dragonRainbowTimer = DRAGON_RAINBOW_DURATION;
   createDamageNumber(impactPosition.clone().add(new THREE.Vector3(0, 0.8, 0)), "MOLTRES", "enemy");
   createHitBurst(impactPosition, new THREE.Vector3(0, 1, 0));
 
@@ -2995,6 +3346,28 @@ function updateFirebirds(delta) {
       flame.scale.set(0.92 + flicker * 0.08, 1 + Math.max(0, flicker) * 0.18, 0.92 + flicker * 0.08);
       flame.rotation.y = Math.sin(clock.elapsedTime * 7 + flame.userData.flickerOffset) * 0.05;
     });
+
+    if (data.isRainbow && data.rainbowParts?.length) {
+      const hueStart = (clock.elapsedTime * 0.42 + data.rainbowOffset) % 1;
+      data.rainbowParts.forEach((entry, partIndex) => {
+        const hue = (hueStart + partIndex * 0.08) % 1;
+        const color = entry.mesh.material?.color;
+        if (color) {
+          color.setHSL(hue, 0.9, 0.66);
+        }
+        if (entry.mesh.material?.emissive) {
+          entry.mesh.material.emissive.setHSL(hue, 0.7, 0.48);
+        }
+      });
+    } else if (data.rainbowParts?.length) {
+      data.rainbowParts.forEach((entry) => {
+        entry.mesh.material.color.copy(entry.baseColor);
+        if (entry.mesh.material?.emissive && entry.baseEmissive) {
+          entry.mesh.material.emissive.copy(entry.baseEmissive);
+        }
+      });
+    }
+
     bird.scale.setScalar(1.3 + Math.max(0, flap) * 0.06);
 
     if (distance < 2.25 && data.attackCooldown <= 0) {
@@ -4019,7 +4392,13 @@ function updateHud(delta) {
       } else if (firebirds.length > 0) {
         ui.status.textContent = "Dodge the Moltres-like attackers and hit them with the diamond sword.";
       } else if (game.dragonActive) {
-        ui.status.textContent = "The red dragon is turning chickens into Moltres-like attackers.";
+        if (game.playerHoldingChicken) {
+          ui.status.textContent = "Press E to throw the held chicken at the dragon.";
+        } else if (nearestChicken && nearestChicken.distance < CHICKEN_PICKUP_DISTANCE) {
+          ui.status.textContent = "Press E to pick up a chicken and throw it at the dragon.";
+        } else {
+          ui.status.textContent = "Get near a chicken while avoiding the dragon.";
+        }
       } else if (nearestChicken && nearestChicken.distance < 3.2) {
         ui.status.textContent = "Press E to let Growlithe eat the chicken.";
       } else {
