@@ -48,6 +48,12 @@ const CHICKEN_THROW_LIFE = 3.8;
 const CHICKEN_PICKUP_DISTANCE = 2.4;
 const CHICKEN_HIT_DRAGON_DISTANCE = 1.72;
 const CHICKEN_THROW_GRAVITY = 17;
+const WALK_SPEED = 9.2;
+const RUN_SPEED = 16.8;
+const PIGLIN_ESCAPE_DISTANCE = 18;
+const FIREBIRD_ESCAPE_DISTANCE = 10;
+const PIGLIN_ESCAPE_MULTIPLIER = 1.6;
+const FIREBIRD_ESCAPE_MULTIPLIER = 1.45;
 const APPLE_PICKUP_DISTANCE = 2.2;
 const APPLE_HEAL_AMOUNT = 16;
 const APPLE_LIFETIME = 20;
@@ -84,6 +90,16 @@ document.querySelector("#app").appendChild(renderer.domElement);
 const textureLoader = new THREE.TextureLoader();
 const pokeballTexture = textureLoader.load(`${import.meta.env.BASE_URL}pokeball.avif`);
 pokeballTexture.colorSpace = THREE.SRGBColorSpace;
+const growlitheNoiseMap = createFurNoiseTexture(96, 0.32);
+growlitheNoiseMap.wrapS = THREE.RepeatWrapping;
+growlitheNoiseMap.wrapT = THREE.RepeatWrapping;
+growlitheNoiseMap.repeat.set(3, 3);
+growlitheNoiseMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const growlitheFurNormalMap = createFurNoiseTexture(120, 0.48);
+growlitheFurNormalMap.wrapS = THREE.RepeatWrapping;
+growlitheFurNormalMap.wrapT = THREE.RepeatWrapping;
+growlitheFurNormalMap.repeat.set(5, 5);
+growlitheFurNormalMap.anisotropy = renderer.capabilities.getMaxAnisotropy();
 
 const ui = {
   healthFill: document.querySelector("#healthFill"),
@@ -123,6 +139,7 @@ const game = {
   statusTimer: 0,
   launchTimer: 0,
   danceTimer: 0,
+  runFastMode: false,
   rocketFlame: 0,
   targetYaw: 0,
   cameraYaw: 0,
@@ -170,24 +187,70 @@ const materials = {
     roughness: 0.98,
   }),
   growlitheFur: new THREE.MeshStandardMaterial({
-    color: 0xd27938,
-    roughness: 0.92,
+    color: 0xcd7b37,
+    roughness: 0.8,
+    metalness: 0.02,
+    clearcoat: 0.26,
+    clearcoatRoughness: 0.58,
+    normalMap: growlitheFurNormalMap,
+    normalScale: new THREE.Vector2(0.32, 0.32),
+    bumpMap: growlitheNoiseMap,
+    bumpScale: 0.018,
+    roughnessMap: growlitheNoiseMap,
   }),
   growlitheFurDark: new THREE.MeshStandardMaterial({
-    color: 0xa14927,
-    roughness: 0.94,
+    color: 0x9d4126,
+    roughness: 0.82,
+    metalness: 0.01,
+    clearcoat: 0.16,
+    clearcoatRoughness: 0.62,
+    normalMap: growlitheFurNormalMap,
+    normalScale: new THREE.Vector2(0.26, 0.26),
+    bumpMap: growlitheNoiseMap,
+    bumpScale: 0.016,
+    roughnessMap: growlitheNoiseMap,
   }),
   growlitheCream: new THREE.MeshStandardMaterial({
-    color: 0xf3dfb6,
-    roughness: 0.96,
+    color: 0xf2e6c0,
+    roughness: 0.87,
+    metalness: 0.02,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.64,
+    normalMap: growlitheFurNormalMap,
+    normalScale: new THREE.Vector2(0.2, 0.2),
+    bumpMap: growlitheNoiseMap,
+    bumpScale: 0.014,
+    roughnessMap: growlitheNoiseMap,
   }),
   growlitheCreamShade: new THREE.MeshStandardMaterial({
-    color: 0xdac290,
-    roughness: 0.98,
+    color: 0xd2b88b,
+    roughness: 0.9,
+    metalness: 0.03,
+    clearcoat: 0.16,
+    clearcoatRoughness: 0.72,
+    normalMap: growlitheFurNormalMap,
+    normalScale: new THREE.Vector2(0.18, 0.18),
+    bumpMap: growlitheNoiseMap,
+    bumpScale: 0.01,
+    roughnessMap: growlitheNoiseMap,
+  }),
+  growlitheFurStrand: new THREE.MeshStandardMaterial({
+    color: 0xb35a33,
+    roughness: 0.75,
+    metalness: 0.02,
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.76,
+    normalMap: growlitheFurNormalMap,
+    normalScale: new THREE.Vector2(0.36, 0.36),
+    bumpMap: growlitheNoiseMap,
+    bumpScale: 0.02,
+    roughnessMap: growlitheNoiseMap,
   }),
   growlitheStripe: new THREE.MeshStandardMaterial({
     color: 0x1c2934,
-    roughness: 0.74,
+    roughness: 0.56,
+    emissive: 0x020406,
+    emissiveIntensity: 0.05,
   }),
   growlitheNose: new THREE.MeshStandardMaterial({
     color: 0x1d242c,
@@ -1862,11 +1925,47 @@ function createCapturePokemon() {
   return group;
 }
 
+function createFurNoiseTexture(size = 96, contrast = 0.3) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size;
+      const ny = y / size;
+      const base = Math.sin((nx + ny) * Math.PI * 13.5) * 0.5 + 0.5;
+      const wave = Math.sin(nx * 22.7 * Math.PI) * Math.cos(ny * 18.9 * Math.PI) * 0.5 + 0.5;
+      const noise = Math.sin((nx * 37.1 + ny * 93.5) * 8.3) * 0.5 + 0.5;
+      const grain = Math.sin((nx * 101.13 + ny * 173.37) * Math.PI) * 0.5 + 0.5;
+      const value = THREE.MathUtils.clamp(
+        (base * 0.46 + wave * 0.18 + noise * 0.22 + grain * 0.14) * contrast + 0.52,
+        0,
+        1,
+      );
+      const channel = Math.floor(value * 255);
+      const i = (y * size + x) * 4;
+      data[i] = channel;
+      data[i + 1] = channel;
+      data[i + 2] = channel;
+      data[i + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function createGrowlitheJockey() {
   const group = new THREE.Group();
   group.name = "Growlithe Rider Player";
 
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.86, 30, 18), materials.growlitheFur);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.86, 36, 24), materials.growlitheFur);
   body.name = "Growlithe Body";
   body.scale.set(0.78, 0.62, 1.62);
   body.position.set(0, 1.22, 0.05);
@@ -1879,14 +1978,14 @@ function createGrowlitheJockey() {
   belly.castShadow = true;
   group.add(belly);
 
-  const mane = new THREE.Mesh(new THREE.SphereGeometry(0.82, 24, 16), materials.growlitheCream);
+  const mane = new THREE.Mesh(new THREE.SphereGeometry(0.82, 28, 20), materials.growlitheCream);
   mane.name = "Growlithe Mane";
   mane.scale.set(0.95, 0.9, 0.82);
   mane.position.set(0, 1.52, -1.0);
   mane.castShadow = true;
   group.add(mane);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.62, 24, 16), materials.growlitheFur);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.62, 28, 20), materials.growlitheFur);
   head.scale.set(0.78, 0.78, 0.9);
   head.position.set(0, 1.93, -1.77);
   head.castShadow = true;
@@ -1898,6 +1997,8 @@ function createGrowlitheJockey() {
   muzzle.castShadow = true;
   group.add(muzzle);
 
+  addGrowlitheFacialRuff(group);
+
   const nose = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 10), materials.growlitheNose);
   nose.scale.set(1.15, 0.8, 0.82);
   nose.position.set(0, 1.84, -2.56);
@@ -1906,7 +2007,18 @@ function createGrowlitheJockey() {
 
   const eyeMaterial = new THREE.MeshStandardMaterial({
     color: 0xf8fbff,
-    roughness: 0.28,
+    roughness: 0.18,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.32,
+    emissive: 0x00101e,
+    emissiveIntensity: 0.08,
+  });
+  const eyeReflector = new THREE.MeshStandardMaterial({
+    color: 0xd6f5ff,
+    roughness: 0.02,
+    metalness: 0.65,
+    emissive: 0x88f3ff,
+    emissiveIntensity: 0.18,
   });
   const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x1b2230 });
   [-0.24, 0.24].forEach((x) => {
@@ -1915,11 +2027,19 @@ function createGrowlitheJockey() {
     eye.scale.set(1, 0.9, 0.35);
     group.add(eye);
 
+    const eyeDot = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), eyeReflector);
+    eyeDot.position.set(x * 1.02, 1.95, -2.17);
+    eyeDot.rotation.y = x > 0 ? -0.2 : 0.2;
+    eyeDot.scale.set(1, 1, 0.22);
+    group.add(eyeDot);
+
     const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), pupilMaterial);
     pupil.position.set(x * 1.02, 1.94, -2.29);
     pupil.scale.set(1, 1, 0.25);
     group.add(pupil);
   });
+  addFurDetailLayer(group, 1.2, -0.2, 0.92);
+  addFurDetailLayer(group, 2.4, -1.7, 0.46);
 
   [-0.48, 0.48].forEach((x) => {
     const ear = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.74, 4), materials.growlitheFur);
@@ -1948,6 +2068,7 @@ function createGrowlitheJockey() {
   });
 
   addChestFur(group);
+  addFurDetailLayer(group, 0.95, -0.02, 0.7);
 
   [-0.42, 0.42].forEach((x) => {
     [-0.4, 0.48].forEach((z, stripeIndex) => {
@@ -2043,6 +2164,7 @@ function createGrowlitheJockey() {
   group.userData.grounded = true;
   group.userData.inQuicksand = false;
   group.userData.wasInQuicksand = false;
+  group.userData.wasOnRock = false;
   group.userData.quicksandMultiplier = 1;
   group.userData.quicksandDepth = 0;
   group.userData.rainbowParts = collectGrowlitheColorParts(group);
@@ -2065,6 +2187,7 @@ function collectGrowlitheColorParts(root) {
   const growlitheMaterials = new Set([
     materials.growlitheFur,
     materials.growlitheFurDark,
+    materials.growlitheFurStrand,
     materials.growlitheCream,
     materials.growlitheCreamShade,
     materials.growlitheStripe,
@@ -2086,11 +2209,90 @@ function collectGrowlitheColorParts(root) {
 }
 
 function createFurSpike(x, y, z, radius, length, pitch, yaw = 0, material = materials.growlitheCream) {
-  const tuft = new THREE.Mesh(new THREE.ConeGeometry(radius, length, 5), material);
+  const tuft = new THREE.Mesh(new THREE.ConeGeometry(radius, length, 7), material);
   tuft.position.set(x, y, z);
   tuft.rotation.set(pitch, yaw, 0);
   tuft.castShadow = true;
   return tuft;
+}
+
+function addGrowlitheFacialRuff(group) {
+  const ruff = 12;
+  for (let i = 0; i < ruff; i += 1) {
+    const angle = (i / ruff) * Math.PI * 2 + 0.4;
+    const spread = 1 - (ruff - i) / (ruff * 6);
+    const x = Math.cos(angle) * 0.42 * spread;
+    const y = 1.74 + Math.sin(angle * 1.65) * 0.09;
+    const z = -2.22 + Math.sin(angle * 1.25) * 0.12;
+    const material = i % 2 === 0 ? materials.growlitheFur : materials.growlitheFurStrand;
+    const tuft = createFurSpike(
+      x,
+      y,
+      z,
+      THREE.MathUtils.lerp(0.012, 0.028, i / ruff),
+      THREE.MathUtils.lerp(0.08, 0.15, (i % 4) / 3),
+      -Math.PI / 2.45 + Math.sin(angle + i) * 0.26,
+      angle * 0.34,
+      material,
+    );
+    tuft.scale.y = 0.76 + i * 0.013;
+    group.add(tuft);
+  }
+}
+
+function addFurDetailLayer(group, yBias, zBias, spread = 0.78) {
+  const rings = [
+    {
+      count: 26,
+      y: 1.22 + yBias * 0.2,
+      z: -1.0 + zBias,
+      radiusX: 0.96 * spread,
+      radiusZ: 0.8 * spread,
+      lengthMin: 0.09,
+      lengthMax: 0.2,
+      radiusMin: 0.022,
+      radiusMax: 0.052,
+      materialA: materials.growlitheFur,
+      materialB: materials.growlitheFurStrand,
+    },
+    {
+      count: 18,
+      y: 0.96 + yBias * 0.24,
+      z: -0.08 + zBias * 0.55,
+      radiusX: 0.76 * spread,
+      radiusZ: 0.62 * spread,
+      lengthMin: 0.06,
+      lengthMax: 0.16,
+      radiusMin: 0.018,
+      radiusMax: 0.044,
+      materialA: materials.growlitheFurDark,
+      materialB: materials.growlitheCreamShade,
+    },
+  ];
+
+  rings.forEach((ring) => {
+    for (let i = 0; i < ring.count; i += 1) {
+      const angle = (i / ring.count) * Math.PI * 2 + yBias * 0.1;
+      const y = ring.y + Math.sin(angle * 2.2 + zBias) * 0.1;
+      const x = Math.cos(angle) * ring.radiusX;
+      const z = ring.z + Math.sin(angle) * ring.radiusZ;
+      const length = THREE.MathUtils.lerp(ring.lengthMin, ring.lengthMax, Math.abs(Math.sin(angle * 1.5)));
+      const radius = THREE.MathUtils.lerp(ring.radiusMin, ring.radiusMax, Math.abs(Math.cos(angle * 2.6)));
+      const material = i % 2 === 0 ? ring.materialA : ring.materialB;
+      const tuft = createFurSpike(
+        x,
+        y,
+        z,
+        radius,
+        length,
+        -Math.PI / 2.3 + Math.sin(angle + yBias) * 0.22,
+        angle * 0.16,
+        material,
+      );
+      tuft.scale.y = 0.82 + (i % 3) * 0.1;
+      group.add(tuft);
+    }
+  });
 }
 
 function addChestFur(group) {
@@ -2141,7 +2343,7 @@ function createGrowlitheLeg(x, z, index) {
   group.add(paw);
 
   for (let i = -1; i <= 1; i += 1) {
-    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 8), materials.shieldSpike);
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 8), materials.growlitheNose);
     claw.position.set(i * 0.08, -0.6, -0.22);
     claw.rotation.x = -Math.PI / 2;
     group.add(claw);
@@ -2496,6 +2698,7 @@ function updatePlayer(delta) {
     (keys.get("KeyD") || keys.get("ArrowRight") ? 1 : 0);
   const surface = getLandingSurface(player.position.x, player.position.z);
   const movementMultiplier = surface.type === "quicksand" ? surface.quicksandMultiplier : 1;
+  game.runFastMode = keys.get("ShiftLeft") || keys.get("ShiftRight");
   player.userData.inQuicksand = surface.type === "quicksand";
   player.userData.quicksandMultiplier = movementMultiplier;
   player.userData.quicksandDepth = surface.quicksandDepth || 0;
@@ -2509,7 +2712,7 @@ function updatePlayer(delta) {
 
   const hasMovement = forwardInput !== 0;
   if (hasMovement && game.danceTimer <= 0) {
-    const speed = (keys.get("ShiftLeft") || keys.get("ShiftRight") ? 14 : 9.2) * movementMultiplier * forwardInput;
+    const speed = (game.runFastMode ? RUN_SPEED : WALK_SPEED) * movementMultiplier * forwardInput;
     const forward = getPlayerForward(tempVec);
     playerVelocity.lerp(forward.multiplyScalar(speed), 0.16);
     player.userData.walkCycle += delta * playerVelocity.length() * 1.4;
@@ -2639,6 +2842,10 @@ function updateGrowlitheDance(delta) {
   parts.saddle.rotation.z = sideBeat * 0.13;
   parts.tailBase.rotation.y = Math.sin(t * 8) * 0.38;
   parts.tailBase.rotation.z = Math.cos(t * 7) * 0.18;
+  const buttShake = Math.sin(t * 20) * 0.14;
+  parts.tailBase.position.y = 1.64 - Math.abs(buttShake) * 0.06;
+  parts.tailBase.position.z = 1.48 + buttShake * 0.12;
+  parts.tailBase.rotation.x = Math.abs(Math.cos(t * 18)) * 0.22;
   parts.rider.rotation.z = -sideBeat * 0.16;
 
   const armSwing = Math.sin(t * 10) * 0.14;
@@ -2691,6 +2898,7 @@ function resetGrowlitheDancePose() {
   parts.mane.rotation.set(0, 0, 0);
   parts.saddle.rotation.set(0, 0, 0);
   parts.tailBase.rotation.set(0.38, 0, 0);
+  parts.tailBase.position.set(0, 1.64, 1.48);
   parts.rider.rotation.set(0, 0, 0);
   parts.leftArm.rotation.set(0, 0, -0.22);
   parts.rightArm.rotation.set(0, 0, -0.42);
@@ -2746,9 +2954,13 @@ function updateJumpInteractions() {
 
 function onPlayerLanded(surface, wasInQuicksand = false) {
   if (surface.type === "rock" && game.phase === "desert") {
-    startRockDance();
+    if (!player.userData.wasOnRock) {
+      startRockDance();
+      player.userData.wasOnRock = true;
+    }
     return;
   }
+  player.userData.wasOnRock = false;
 
   if (surface.type === "quicksand" && !wasInQuicksand && game.phase === "desert") {
     setStatus("Growlithe is sinking in quicksand. Jump to jump out with a burst of color.", 1.6);
@@ -2769,6 +2981,8 @@ function requestJumpOrBoard() {
   }
 
   if (player.userData.grounded) {
+    game.danceTimer = 0;
+    player.userData.wasOnRock = false;
     if (game.phase === "desert" && player.userData.inQuicksand) {
       game.growlitheRainbowPersistent = true;
       game.growlitheRainbowTimer = GROWLITHE_QUICKSAND_RAINBOW_DURATION;
@@ -2884,6 +3098,22 @@ function updatePiglins(delta) {
 
     const toPlayer = player.position.clone().sub(piglin.position);
     const distance = toPlayer.length();
+    const playerEscaping = game.runFastMode && distance < PIGLIN_ESCAPE_DISTANCE;
+    if (playerEscaping) {
+      const fleeDirection = toPlayer.clone();
+      fleeDirection.y = 0;
+      if (fleeDirection.lengthSq() > 0.0001) {
+        fleeDirection.normalize();
+        piglin.position.addScaledVector(fleeDirection, -data.speed * PIGLIN_ESCAPE_MULTIPLIER * delta);
+        piglin.rotation.y = yawForDirection(fleeDirection.clone().multiplyScalar(-1));
+      }
+      if (distance < 6) {
+        data.attackCooldown = 1.5;
+      }
+      piglin.position.x = THREE.MathUtils.clamp(piglin.position.x, -worldSize + 8, worldSize - 8);
+      piglin.position.z = THREE.MathUtils.clamp(piglin.position.z, -worldSize + 8, worldSize - 8);
+      return;
+    }
     data.isBlocking = data.forceBlocking || (distance < 8 && data.blockCooldown <= 0 && Math.sin(clock.elapsedTime * 2.8 + index) > 0.35);
 
     if (data.stun > 0) {
@@ -3490,6 +3720,19 @@ function updateFirebirds(delta) {
     const target = player.position.clone().add(new THREE.Vector3(0, 1.45, 0));
     const toPlayer = target.sub(bird.position);
     const distance = toPlayer.length();
+    if (game.runFastMode && distance < FIREBIRD_ESCAPE_DISTANCE) {
+      const retreat = bird.position.clone().sub(player.position);
+      retreat.y = 0;
+      if (retreat.lengthSq() < 0.0001) {
+        retreat.set(0.3, 0, 1.0);
+      }
+      retreat.normalize();
+      data.velocity.lerp(retreat.multiplyScalar(data.speed * FIREBIRD_ESCAPE_MULTIPLIER), 0.12);
+      bird.position.addScaledVector(data.velocity, delta);
+      bird.rotation.y = yawForDirection(retreat);
+      bird.rotation.z += Math.sin(clock.elapsedTime * 6 + index) * 0.05;
+      return;
+    }
     const direction = distance > 0.001 ? toPlayer.normalize() : new THREE.Vector3(0, 0, -1);
     const side = data.side || (index === 0 ? -1 : 1);
     const orbit = new THREE.Vector3(-direction.z * side, 0.28, direction.x * side).normalize();
@@ -5016,6 +5259,7 @@ function resetGame() {
   game.cameraShake = 0;
   game.launchTimer = 0;
   game.danceTimer = 0;
+  game.runFastMode = false;
   game.maxLegLift = 0;
   game.blockFlashTimer = 0;
   game.lastBlockTime = 0;
@@ -5045,6 +5289,7 @@ function resetGame() {
   player.userData.grounded = true;
   player.userData.inQuicksand = false;
   player.userData.wasInQuicksand = false;
+  player.userData.wasOnRock = false;
   player.userData.quicksandDepth = 0;
   player.userData.quicksandMultiplier = 1;
   playerVelocity.set(0, 0, 0);
