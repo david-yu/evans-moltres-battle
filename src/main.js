@@ -3581,6 +3581,17 @@ function clearFirebirds() {
   }
 }
 
+function removeApple(index) {
+  const apple = apples[index];
+  if (!apple) return;
+
+  scene.remove(apple);
+  apple.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+  });
+  apples.splice(index, 1);
+}
+
 function spawnPokeballs(position, count = 3) {
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * Math.PI * 2 + THREE.MathUtils.randFloat(-0.28, 0.28);
@@ -3617,12 +3628,79 @@ function spawnPokeballs(position, count = 3) {
   }
 }
 
+function spawnApple(position) {
+  const source = position.clone();
+  const phase = game.phase === "planet" ? "planet" : "desert";
+  const x = THREE.MathUtils.clamp(source.x + THREE.MathUtils.randFloat(-0.65, 0.65), -worldSize + 12, worldSize - 12);
+  const z = THREE.MathUtils.clamp(source.z + THREE.MathUtils.randFloat(-0.65, 0.65), -worldSize + 12, worldSize - 12);
+  const yBase = phase === "planet" ? planetHeight(x, z) : groundY(x, z);
+
+  const apple = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.34, 20, 16), materials.appleBody);
+  body.position.y = 0.18;
+  body.castShadow = true;
+  apple.add(body);
+
+  const stem = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.16, 10), materials.appleLeaf);
+  stem.position.set(0.12, 0.42, 0.12);
+  stem.rotation.z = -Math.PI * 0.25;
+  stem.castShadow = true;
+  apple.add(stem);
+
+  apple.name = "Health Apple";
+  apple.position.set(x, yBase, z);
+  apple.userData = {
+    phase,
+    life: APPLE_LIFETIME,
+    baseY: yBase,
+    bobOffset: THREE.MathUtils.randFloat(0, Math.PI * 2),
+    rotationRate: THREE.MathUtils.randFloat(-0.7, 0.9),
+  };
+  apples.push(apple);
+  scene.add(apple);
+}
+
 function updatePokeballs(delta) {
   pokeballs.forEach((ball) => {
     ball.position.y = ball.userData.baseY + Math.sin(clock.elapsedTime * 3.8 + ball.userData.bobOffset) * 0.16;
     ball.rotation.y += delta * ball.userData.spinSpeed;
     ball.rotation.x += delta * ball.userData.spinSpeed * 0.35;
   });
+}
+
+function updateApples(delta) {
+  for (let i = apples.length - 1; i >= 0; i -= 1) {
+    const apple = apples[i];
+    if (!apple) continue;
+
+    const currentPhase = game.phase === "planet" ? "planet" : "desert";
+    const visibleInMode = currentPhase === apple.userData.phase;
+    apple.visible = game.phase === "space" ? false : visibleInMode;
+    if (!visibleInMode) continue;
+
+    apple.userData.life -= delta;
+    if (apple.userData.life <= 0) {
+      removeApple(i);
+      continue;
+    }
+
+    const bob = Math.sin(clock.elapsedTime * 3.2 + apple.userData.bobOffset) * 0.14;
+    apple.position.y = apple.userData.baseY + bob;
+    apple.rotation.y += delta * apple.userData.rotationRate;
+
+    const distance = flatDistance(player.position, apple.position);
+    if (distance < APPLE_PICKUP_DISTANCE) {
+      const previousHealth = game.health;
+      game.health = Math.min(100, game.health + APPLE_HEAL_AMOUNT);
+      if (game.health > previousHealth) {
+        createDamageNumber(apple.position.clone().add(new THREE.Vector3(0, 1.05, 0)), `+${APPLE_HEAL_AMOUNT}`, "heal");
+        setStatus("Gotta eat the apple. Health restored.", 1.2);
+      } else {
+        setStatus("Health is already full.", 1.0);
+      }
+      removeApple(i);
+    }
+  }
 }
 
 function getNearestPokeball() {
@@ -3665,6 +3743,12 @@ function clearPokeballs() {
     ball.geometry.dispose();
     ball.material.dispose();
     pokeballs.splice(i, 1);
+  }
+}
+
+function clearApples() {
+  for (let i = apples.length - 1; i >= 0; i -= 1) {
+    removeApple(i);
   }
 }
 
@@ -4494,6 +4578,9 @@ function setWorldMode(mode) {
     desertChicken.visible = showDesert && game.returnedChicken;
   }
   rocket.visible = true;
+  apples.forEach((apple) => {
+    apple.visible = apple.userData?.phase === "desert" ? showDesert : showPlanet;
+  });
   if (rocket.userData.pad) {
     rocket.userData.pad.visible = mode !== "launching" && mode !== "space";
   }
@@ -4971,6 +5058,7 @@ function resetGame() {
   rocketFlame.userData.power = 0;
   if (rocketChickenPassenger) rocketChickenPassenger.visible = false;
   if (desertChicken) desertChicken.visible = false;
+  clearApples();
   clearSmokePuffs();
   clearLavaBombs();
   clearSpaceCombat();
