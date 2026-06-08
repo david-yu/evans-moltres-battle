@@ -2327,33 +2327,73 @@ function createGrowlitheLeg(x, z, index) {
   group.userData.isFrontLeg = index >= 2;
   group.position.set(x, 0.86, z);
 
-  const upper = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.84, 0.29), materials.growlitheFur);
-  upper.position.y = 0.12;
+  const hip = new THREE.Group();
+  hip.position.set(0, 0.08, 0.03);
+  group.add(hip);
+
+  const shoulderKicker = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 6), materials.growlitheCreamShade);
+  shoulderKicker.rotation.x = -Math.PI / 2;
+  shoulderKicker.position.set(0, -0.03, 0.03);
+  shoulderKicker.castShadow = true;
+  hip.add(shoulderKicker);
+
+  const thigh = new THREE.Group();
+  thigh.position.set(0, -0.2, 0.01);
+  group.userData.thigh = thigh;
+  group.add(thigh);
+
+  const upper = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.74, 0.28), materials.growlitheFur);
+  upper.position.set(0, -0.08, 0.01);
   upper.castShadow = true;
-  group.add(upper);
+  thigh.add(upper);
 
-  const cuff = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), materials.growlitheCream);
-  cuff.scale.set(1.05, 0.72, 0.96);
-  cuff.position.y = -0.2;
-  cuff.castShadow = true;
-  group.add(cuff);
+  const knee = new THREE.Group();
+  knee.position.set(0, -0.62, 0.01);
+  group.userData.knee = knee;
+  thigh.add(knee);
 
-  const paw = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), materials.growlitheCream);
-  paw.scale.set(1.18, 0.38, 0.92);
-  paw.position.set(0, -0.57, -0.05);
+  const lower = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.62, 0.22), materials.growlitheFurDark);
+  lower.position.set(0, -0.06, 0.01);
+  lower.castShadow = true;
+  knee.add(lower);
+
+  const ankle = new THREE.Group();
+  ankle.position.set(0, -0.64, -0.02);
+  group.userData.ankle = ankle;
+  knee.add(ankle);
+
+  const pawRoot = new THREE.Group();
+  pawRoot.position.set(0, -0.06, -0.12);
+  ankle.add(pawRoot);
+  group.userData.paw = pawRoot;
+
+  const paw = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.13, 0.46), materials.growlitheCream);
+  paw.position.set(0, -0.1, -0.14);
   paw.castShadow = true;
-  group.add(paw);
+  pawRoot.add(paw);
 
-  for (let i = -1; i <= 1; i += 1) {
-    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 8), materials.growlitheNose);
-    claw.position.set(i * 0.08, -0.6, -0.22);
-    claw.rotation.x = -Math.PI / 2;
-    group.add(claw);
-  }
+  const solePad = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 10), materials.growlitheCreamShade);
+  solePad.scale.set(1.5, 0.35, 1.9);
+  solePad.position.set(0, -0.18, -0.2);
+  solePad.castShadow = true;
+  pawRoot.add(solePad);
+
+  const clawLayout = [
+    [-0.11, -0.1, -0.18, 0.1],
+    [0.11, -0.1, -0.18, -0.1],
+    [-0.05, -0.05, -0.03, 0.05],
+    [0.05, -0.05, -0.03, -0.05],
+  ];
+  clawLayout.forEach(([xPos, yPos, zPos, sway]) => {
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.16, 7), materials.growlitheNose);
+    claw.position.set(xPos, yPos, zPos);
+    claw.rotation.set(-Math.PI / 2, sway, 0.02);
+    claw.castShadow = true;
+    pawRoot.add(claw);
+  });
 
   return group;
 }
-
 function createShoulderShield() {
   const shield = new THREE.Group();
   shield.name = "Spiked Shoulder Shield";
@@ -2760,6 +2800,26 @@ function updatePlayer(delta) {
     const recoveryWave = Math.sin(phase + Math.PI);
     leg.rotation.z = side * (0.02 + legWave * (0.11 + 0.06 * stride) * (leg.userData.isFrontLeg ? 0.92 : 1.04));
     leg.rotation.x = Math.cos(phase) * (0.055 + 0.045 * stride) * rearPush;
+    const hipDrive = Math.max(0, legWave);
+    const hipSettle = Math.max(0, -legWave);
+    const gaitDrive = isPredatory ? 1.1 : 0.78;
+    if (leg.userData.thigh) {
+      leg.userData.thigh.rotation.x = (-0.05 - hipDrive * 0.34 - hipSettle * 0.08) * gaitDrive * rearPush * speedFactor;
+    }
+    if (leg.userData.knee) {
+      leg.userData.knee.rotation.x = (0.12 + hipDrive * 0.34 - hipSettle * 0.18) * gaitDrive * (leg.userData.isFrontLeg ? 0.86 : 1) * speedFactor;
+    }
+    if (leg.userData.ankle) {
+      leg.userData.ankle.rotation.x = (-hipDrive * 0.26 + hipSettle * 0.12) * gaitDrive * speedFactor;
+    }
+    if (leg.userData.paw) {
+      leg.userData.paw.rotation.x = (hipDrive - hipSettle) * 0.18 * gaitDrive * rearPush * speedFactor;
+      leg.userData.paw.children.forEach((claw) => {
+        if (claw.geometry && claw.geometry.type === "ConeGeometry") {
+          claw.rotation.z = 0.2 * Math.sin(phase * 2) * side;
+        }
+      });
+    }
     const walkLiftCurve = Math.max(0, legWave) * 1.4 + Math.max(0, recoveryWave) * 0.3;
     const walkingLift = walkLiftCurve * speedFactor * (0.06 + 0.052 * stride) * rearPush;
     leg.position.y = 0.86 + walkingLift;
